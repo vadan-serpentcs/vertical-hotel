@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
     <!-- ======== Reservation ======== -->
     <!-- Form view of hotel reservation -->
@@ -8,38 +9,35 @@
             <form string="Reservation">
                 <header>
                     <button
-                        name="action_send_reservation_mail"
-                        type="object"
-                        string="Send Reservation Email"
-                        invisible="state != 'confirm'"
-                        class="oe_highlight"
-                    />
-                    <button
                         name="confirmed_reservation"
                         string="Confirm"
                         invisible="state != 'draft'"
-                        class="oe_highlight"
+                        class="btn-primary"
                         type="object"
                     />
                     <button
                         name="create_folio"
                         string="Create Folio"
                         invisible="state != 'confirm'"
-                        class="oe_highlight"
+                        class="btn-primary"
                         type="object"
+                    />
+                    <button
+                        name="action_send_reservation_mail"
+                        type="object"
+                        string="Send Reservation Email"
+                        invisible="state != 'confirm'"
                     />
                     <button
                         name="cancel_reservation"
                         string="Cancel Reservation"
-                        invisible="state in ['draft','confirm']"
-                        class="oe_highlight"
+                        invisible="state not in ['draft', 'confirm']"
                         type="object"
                     />
                     <button
                         name="set_to_draft_reservation"
                         string="Set to Draft"
                         invisible="state != 'cancel'"
-                        class="oe_highlight"
                         type="object"
                     />
                     <field name="state" widget="statusbar" />
@@ -49,9 +47,9 @@
                         <button
                             name="open_folio_view"
                             type="object"
-                            icon="fa-file-text-o"
+                            icon="description"
                             class="oe_stat_button"
-                            invisible="no_of_folio == '0'"
+                            invisible="no_of_folio == 0"
                         >
                             <field
                                 name="no_of_folio"
@@ -60,10 +58,12 @@
                             />
                         </button>
                     </div>
-                    <label for='reservation_no' string="Reservation No" />
-                    <h1>
-                        <field name="reservation_no" class="oe_inline" />
-                    </h1>
+                    <div class="oe_title">
+                        <label for="reservation_no" string="Reservation No" />
+                        <h1>
+                            <field name="reservation_no" />
+                        </h1>
+                    </div>
                     <group>
                         <group>
                             <field name="date_order" />
@@ -83,7 +83,6 @@
                                 readonly="state != 'draft'"
                                 domain="[('parent_id','=',partner_id)]"
                             />
-                            <newline />
                             <field
                                 name="partner_invoice_id"
                                 domain="[('parent_id','=',partner_id)]"
@@ -95,11 +94,7 @@
                             />
                         </group>
                         <group>
-                            <field
-                                readonly="state != 'draft'"
-                                name="pricelist_id"
-                                col="2"
-                            />
+                            <field readonly="state != 'draft'" name="pricelist_id" />
                             <field
                                 name="checkin"
                                 string="Booking Date"
@@ -117,37 +112,38 @@
                         </group>
                     </group>
                     <notebook>
-                        <page name="reservation_line" string='Reservation Line'>
-                            <field
-                                name="reservation_line"
-                                colspan="4"
-                                nolabel="1"
-                                readonly="0"
-                            >
-                                <form string="Reservation Line">
-                                    <separator string="Room Type" />
-                                    <field name="name" invisible="1" />
-                                    <field name="categ_id" colspan="4" nolabel="1" />
-                                    <newline />
-                                    <separator string="Select Room" />
-                                    <field
-                                        name="reserve"
-                                        colspan="4"
-                                        string="Room Number"
-                                        nolabel="1"
-                                    />
-                                </form>
+                        <page name="reservation_line" string="Reservation Line">
+                            <field name="reservation_line" readonly="state != 'draft'">
+                                <!-- hotel_website adds the room type before reserve -->
                                 <list>
+                                    <field
+                                        name="available_room_ids"
+                                        column_invisible="1"
+                                    />
                                     <field
                                         name="reserve"
                                         string="Rooms"
                                         widget="many2many_tags"
                                     />
                                 </list>
+                                <form string="Reservation Line">
+                                    <group>
+                                        <field name="categ_id" />
+                                        <field
+                                            name="available_room_ids"
+                                            invisible="1"
+                                        />
+                                        <field
+                                            name="reserve"
+                                            string="Room Number"
+                                            widget="many2many_tags"
+                                        />
+                                    </group>
+                                </form>
                             </field>
                         </page>
-                        <page name="history" string='History'>
-                            <field name='folio_id' readonly='1' />
+                        <page name="history" string="History">
+                            <field name="folio_id" readonly="1" />
                         </page>
                     </notebook>
                 </sheet>
@@ -155,7 +151,7 @@
             </form>
         </field>
     </record>
-    <!-- Tree view of hotel reservation -->
+    <!-- List view of hotel reservation -->
     <record id="view_hotel_reservation_tree" model="ir.ui.view">
         <field name="name">hotel.reservation.list</field>
         <field name="model">hotel.reservation</field>
@@ -169,7 +165,13 @@
                 <field name="partner_id" />
                 <field name="checkin" />
                 <field name="checkout" />
-                <field name="state" />
+                <field
+                    name="state"
+                    widget="badge"
+                    decoration-info="state == 'draft'"
+                    decoration-success="state == 'confirm'"
+                    decoration-muted="state in ['done', 'cancel']"
+                />
             </list>
         </field>
     </record>
@@ -225,7 +227,6 @@
         <field name="arch" type="xml">
             <graph string="Reservation" type="pie">
                 <field name="state" />
-                <field name="reservation_no" />
             </graph>
         </field>
     </record>
@@ -248,19 +249,18 @@
     <!-- Action of hotel reservation -->
     <record id="action_hotel_reservation_tree_all" model="ir.actions.act_window">
         <field name="name">Reservations</field>
-        <field name="type">ir.actions.act_window</field>
         <field name="res_model">hotel.reservation</field>
-        <field name="view_mode">list,form,calendar</field>
+        <field name="view_mode">list,form,calendar,graph</field>
     </record>
     <menuitem
         id="menu_hotel_reservation"
         name="Reservations"
-        parent="hotel.hotel_management_menu"
+        parent="vertical_hotel.hotel_management_menu"
         sequence="1"
     />
     <menuitem
-        name="Reservations"
         id="menu_action_hotel_reservation_tree_all"
+        name="Reservations"
         action="action_hotel_reservation_tree_all"
         parent="menu_hotel_reservation"
         sequence="3"
@@ -268,27 +268,11 @@
     <record id="view_hotel_room_form_inherited" model="ir.ui.view">
         <field name="name">view.hotel.room.form.inherited</field>
         <field name="model">hotel.room</field>
-        <field name="inherit_id" ref="hotel.view_hotel_room_form" />
+        <field name="inherit_id" ref="vertical_hotel.view_hotel_room_form" />
         <field name="arch" type="xml">
             <xpath expr="//page[@name='information_hotel_room']" position="after">
                 <page name="room_reservation" string="Room Reservation">
-                    <separator colspan='4' string="Room Reservation Line" />
-                    <field
-                        name="room_reservation_line_ids"
-                        colspan="4"
-                        nolabel='1'
-                        string="Room Reservation Line"
-                    >
-                        <form string=" Room line">
-                            <group colspan='4' col='4'>
-                                <field name="room_id" />
-                                <field name="check_in" />
-                                <field name="state" />
-                                <field name="check_out" />
-                                <field name="reservation_id" />
-                                <field name="status" />
-                            </group>
-                        </form>
+                    <field name="room_reservation_line_ids">
                         <list>
                             <field name="room_id" />
                             <field name="check_in" />
@@ -297,6 +281,20 @@
                             <field name="reservation_id" />
                             <field name="status" />
                         </list>
+                        <form string="Room line">
+                            <group>
+                                <group>
+                                    <field name="room_id" />
+                                    <field name="reservation_id" />
+                                    <field name="state" />
+                                    <field name="status" />
+                                </group>
+                                <group>
+                                    <field name="check_in" />
+                                    <field name="check_out" />
+                                </group>
+                            </group>
+                        </form>
                     </field>
                 </page>
             </xpath>
@@ -305,19 +303,19 @@
     <record id="view_hotel_folio_form_inherited" model="ir.ui.view">
         <field name="name">hotel.folio.form.inherited</field>
         <field name="model">hotel.folio</field>
-        <field name="inherit_id" ref="hotel.view_hotel_folio_form" />
+        <field name="inherit_id" ref="vertical_hotel.view_hotel_folio_form" />
         <field name="arch" type="xml">
-            <field name="name" position='after'>
-                <field name="reservation_id" readonly='1' />
+            <field name="name" position="after">
+                <field name="reservation_id" readonly="1" />
             </field>
         </field>
     </record>
     <record id="view_hotel_folio_tree_inherited" model="ir.ui.view">
         <field name="name">hotel.folio.list.inherited</field>
         <field name="model">hotel.folio</field>
-        <field name="inherit_id" ref="hotel.view_hotel_folio_tree" />
+        <field name="inherit_id" ref="vertical_hotel.view_hotel_folio_tree" />
         <field name="arch" type="xml">
-            <field name="name" position='after'>
+            <field name="name" position="after">
                 <field name="reservation_id" />
             </field>
         </field>
@@ -325,9 +323,9 @@
     <record id="view_hotel_folio1_search_inherited" model="ir.ui.view">
         <field name="name">hotel.folio.search.inherited</field>
         <field name="model">hotel.folio</field>
-        <field name="inherit_id" ref="hotel.view_hotel_folio_search" />
+        <field name="inherit_id" ref="vertical_hotel.view_hotel_folio_search" />
         <field name="arch" type="xml">
-            <field name="name" position='after'>
+            <field name="name" position="after">
                 <field name="reservation_id" />
             </field>
         </field>
@@ -338,29 +336,33 @@
         <field name="model">room.reservation.summary</field>
         <field name="arch" type="xml">
             <form string="Reservation Summary">
-                <header>
-                    <separator string="Room Reservation Summary" colspan="4" />
-                </header>
                 <sheet>
-                    <group colspan="4" col="4">
-                        <div>
-                            <label for="date_from" string="Summary Period" />
-                            <field name="date_from" class="oe_inline" />
-                            to
-                            <field name="date_to" class="oe_inline" />
-                        </div>
-                    </group>
-                    <notebook>
-                        <page name="room_summary" string="Room Summary">
-                            <field name="summary_header" colspan="4" invisible="1" />
-                            <field
-                                name="room_summary"
-                                colspan="4"
-                                widget="room_reservation_summary"
-                            />
-                            <!-- <widget name="Room_Reservation"></widget> -->
-                        </page>
-                    </notebook>
+                    <div class="d-flex flex-wrap align-items-baseline gap-2 mb-3">
+                        <label
+                            for="date_from"
+                            string="Summary Period"
+                            class="fw-bold"
+                        />
+                        <field name="date_from" class="oe_inline" />
+                        <span>to</span>
+                        <field name="date_to" class="oe_inline" />
+                        <span class="ms-auto small text-muted">
+                            <span
+                                class="badge o_room_summary_free text-body"
+                            >Free</span>
+                            <span
+                                class="badge o_room_summary_reserved text-body"
+                            >Reserved</span>
+                            <span
+                                class="badge o_room_summary_folio text-body"
+                            >Folio</span>
+                        </span>
+                    </div>
+                    <field
+                        name="summary_data"
+                        widget="room_reservation_summary"
+                        nolabel="1"
+                    />
                 </sheet>
             </form>
         </field>
@@ -371,33 +373,36 @@
         <field name="model">quick.room.reservation</field>
         <field name="arch" type="xml">
             <form string="Quick Reservation">
-                <header>
-                    <separator string="Quick Reservation" colspan="4" />
-                </header>
-                <sheet>
-                    <group colspan="4" col="4">
-                        <field name="partner_id" />
-                        <field name="room_id" readonly="1" />
+                <group>
+                    <group>
+                        <field name="room_id" readonly="1" force_save="1" />
                         <field name="check_in" />
                         <field name="check_out" />
-                        <field name="company_id" />
+                        <field name="adults" />
+                    </group>
+                    <group>
+                        <field name="partner_id" />
                         <field name="pricelist_id" />
+                        <field name="company_id" invisible="1" />
                         <field name="partner_invoice_id" />
                         <field name="partner_order_id" />
                         <field name="partner_shipping_id" />
-                        <field name="adults" />
                     </group>
-                </sheet>
+                </group>
                 <footer>
-                    <group colspan="2" col="2">
-                        <button
-                            string="Save"
-                            name="room_reserve"
-                            type="object"
-                            class="btn-primary"
-                        />
-                        <button string="Cancel" special="cancel" class="btn-primary" />
-                    </group>
+                    <button
+                        string="Save"
+                        name="room_reserve"
+                        type="object"
+                        class="btn-primary"
+                        data-hotkey="q"
+                    />
+                    <button
+                        string="Discard"
+                        special="cancel"
+                        class="btn-secondary"
+                        data-hotkey="x"
+                    />
                 </footer>
             </form>
         </field>

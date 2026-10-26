@@ -1,54 +1,62 @@
-import {TextField, textField} from "@web/views/fields/text/text_field";
-import {onPatched, useState} from "@odoo/owl";
-import {evaluateExpr} from "@web/core/py_js/py";
+import {Component, useProps} from "@odoo/owl";
+import {_t} from "@web/core/l10n/translation";
 import {registry} from "@web/core/registry";
+import {standardFieldProps} from "@web/views/fields/standard_field_props";
 import {useService} from "@web/core/utils/hooks";
 
-export class RoomReservation extends TextField {
+/**
+ * Rooms x days grid of room.reservation.summary.summary_data.
+ * A free day opens the quick reservation dialog for that room and day,
+ * a booked day opens its reservation or folio.
+ */
+export class RoomReservationSummary extends Component {
     static template = "hotel_reservation.RoomSummary";
-    static components = {...TextField.components};
+    props = useProps({...standardFieldProps});
 
     setup() {
-        super.setup();
-        this.actionService = useService("action");
-        this.state = useState({
-            date_to: false,
-            date_from: false,
-            summary_header: evaluateExpr(this.props.record.data.summary_header),
-            room_summary: evaluateExpr(this.props.record.data.room_summary),
-        });
-        onPatched(() => {
-            this.state.summary_header = evaluateExpr(
-                this.props.record.data.summary_header
-            );
-            this.state.room_summary = evaluateExpr(this.props.record.data.room_summary);
-        });
+        this.action = useService("action");
     }
 
-    loadForm(ev, roomId, statusDate) {
-        ev.stopPropagation();
-        ev.preventDefault();
-        if (!roomId || !statusDate) {
-            return;
+    get summary() {
+        return this.props.record.data[this.props.name] || {days: [], rooms: []};
+    }
+
+    cellTitle(room, cell) {
+        if (cell.state === "free") {
+            return _t("Book %(room)s on %(date)s", {room: room.name, date: cell.date});
         }
-        this.actionService.doAction({
-            name: "Room Reservation",
-            res_model: "quick.room.reservation",
-            views: [[false, "form"]],
-            type: "ir.actions.act_window",
-            view_mode: "form",
-            target: "new",
-            context: {
-                default_room_id: roomId,
-                default_check_in: statusDate,
-                default_adults: 1,
-            },
-        });
+        return cell.label;
+    }
+
+    onCellClick(room, cell) {
+        if (cell.state === "free") {
+            // Save opens the new reservation
+            this.action.doAction({
+                name: _t("Quick Reservation"),
+                type: "ir.actions.act_window",
+                res_model: "quick.room.reservation",
+                views: [[false, "form"]],
+                target: "new",
+                context: {
+                    default_room_id: room.id,
+                    quick_reservation_date: cell.date,
+                },
+            });
+        } else {
+            this.action.doAction({
+                type: "ir.actions.act_window",
+                res_model: cell.res_model,
+                res_id: cell.res_id,
+                views: [[false, "form"]],
+                target: "current",
+            });
+        }
     }
 }
-export const myWidgetadditionClasses = {
-    ...textField,
-    component: RoomReservation,
-    additionalClasses: [...(textField.additionalClasses || []), "o_field_text"],
+
+export const roomReservationSummary = {
+    component: RoomReservationSummary,
+    supportedTypes: ["json"],
 };
-registry.category("fields").add("room_reservation_summary", myWidgetadditionClasses);
+
+registry.category("fields").add("room_reservation_summary", roomReservationSummary);

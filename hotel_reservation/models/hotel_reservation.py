@@ -1,12 +1,11 @@
 # Copyright (C) 2024-TODAY Serpent Consulting Services Pvt. Ltd. (<http://www.serpentcs.com>).
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from datetime import timedelta
-
-from dateutil.relativedelta import relativedelta
+from datetime import datetime, time, timedelta
 
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Command
 
 
 class HotelReservation(models.Model):
@@ -14,11 +13,7 @@ class HotelReservation(models.Model):
     _rec_name = "reservation_no"
     _description = "Reservation"
     _order = "reservation_no desc"
-    _inherit = ["mail.thread"]
-
-    def _compute_folio_count(self):
-        for res in self:
-            res.update({"no_of_folio": len(res.folio_id.ids)})
+    _inherit = "mail.thread"
 
     reservation_no = fields.Char(readonly=True, copy=False)
     date_order = fields.Datetime(
@@ -68,7 +63,7 @@ class HotelReservation(models.Model):
         "res.partner",
         "Delivery Address",
         readonly=True,
-        help="Delivery addressfor current reservation. ",
+        help="Delivery address for current reservation.",
     )
     checkin = fields.Datetime(
         "Expected-Date-Arrival",
@@ -104,15 +99,20 @@ class HotelReservation(models.Model):
         ],
         readonly=True,
         default="draft",
+        tracking=True,
     )
     folio_id = fields.Many2many(
         "hotel.folio",
         "hotel_folio_reservation_rel",
         "order_id",
         "invoice_id",
-        string="Folio",
     )
     no_of_folio = fields.Integer("No. Folio", compute="_compute_folio_count")
+
+    @api.depends("folio_id")
+    def _compute_folio_count(self):
+        for res in self:
+            res.no_of_folio = len(res.folio_id)
 
     @api.ondelete(at_uninstall=False)
     def _unlink_except_non_draft(self):
@@ -121,8 +121,10 @@ class HotelReservation(models.Model):
                 self.env._("You can only delete reservations in draft state!")
             )
 
-    def copy(self):
-        return super(HotelReservation, self.with_context(duplicate=True)).copy()
+    def copy(self, default=None):
+        return super(HotelReservation, self.with_context(duplicate=True)).copy(
+            default=default
+        )
 
     @api.constrains("reservation_line", "adults", "children")
     def _check_reservation_rooms(self):
@@ -135,22 +137,21 @@ class HotelReservation(models.Model):
         for reservation in self:
             room_cap = []
             for rec in reservation.reservation_line:
-                cap = 0
                 if len(rec.reserve) == 0:
                     raise ValidationError(
                         self.env._("Please Select Rooms For Reservation.")
                     )
-                cap = sum(room.capacity for room in rec.reserve)
-                room_cap.append(cap)
-            if not self.env.context.get("duplicate"):
-                if (reservation.adults + reservation.children) > sum(room_cap):
-                    raise ValidationError(
-                        self.env._(
-                            "Room Capacity Exceeded \n"
-                            " Please Select Rooms According to"
-                            " Members Accommodation."
-                        )
+                room_cap.append(sum(room.capacity for room in rec.reserve))
+            if not self.env.context.get("duplicate") and (
+                reservation.adults + reservation.children
+            ) > sum(room_cap):
+                raise ValidationError(
+                    self.env._(
+                        "Room Capacity Exceeded \n"
+                        " Please Select Rooms According to"
+                        " Members Accommodation."
                     )
+                )
             if reservation.adults <= 0:
                 raise ValidationError(self.env._("Adults must be more than 0"))
 
@@ -160,14 +161,16 @@ class HotelReservation(models.Model):
         When date_order is less than check-in date or
         Checkout date should be greater than the check-in date.
         """
-        if self.checkout and self.checkin:
+        for reservation in self:
+            if not (reservation.checkout and reservation.checkin):
+                continue
             # Compare days, not exact timestamps: date_order is stamped at
             # creation time, so a same-day check-in is valid (walk-in guest).
-            if self.checkin.date() < self.date_order.date():
+            if reservation.checkin.date() < reservation.date_order.date():
                 raise ValidationError(
                     self.env._("Check-in date should be greater than the current date.")
                 )
-            if self.checkout < self.checkin:
+            if reservation.checkout < reservation.checkin:
                 raise ValidationError(
                     self.env._("Check-out date should be greater than Check-in date.")
                 )
@@ -212,6 +215,17 @@ class HotelReservation(models.Model):
         delta = date2 - date1
         return {date1 + timedelta(days=i) for i in range(delta.days + 1)}
 
+    def _check_state(self, allowed, action):
+        wrong = self.filtered(lambda r: r.state not in allowed)
+        if wrong:
+            raise UserError(
+                self.env._(
+                    "%(action)s is not possible for %(reservations)s.",
+                    action=action,
+                    reservations=", ".join(wrong.mapped("reservation_no")),
+                )
+            )
+
     def confirmed_reservation(self):
         """
         This method create a new record set for hotel room reservation line
@@ -219,80 +233,38 @@ class HotelReservation(models.Model):
         @param self: The object pointer
         @return: new record set for hotel room reservation line.
         """
+        self._check_state(("draft",), self.env._("Confirming"))
+        room_obj = self.env["hotel.room"]
         reservation_line_obj = self.env["hotel.room.reservation.line"]
-        vals_list = []
-
-        # Collect all rooms to check for overlaps
-        all_rooms = self.mapped("reservation_line.reserve")
-
-        # Pre-fetch existing confirmed/done reservations for these rooms
-        existing_reservations = reservation_line_obj.search(
-            [
-                ("status", "in", ("confirm", "done")),
-                ("room_id", "in", all_rooms.ids),
-            ]
-        )
-
-        # Group existing reservations by room_id
-        existing_by_room = {}
-        for res in existing_reservations:
-            existing_by_room.setdefault(res.room_id.id, []).append(res)
-
+        # one reservation at a time: the rooms booked by the previous ones
+        # in self are already taken
         for reservation in self:
-            reserv_checkin = reservation.checkin
-            reserv_checkout = reservation.checkout
-
-            for line in reservation.reservation_line:
-                for room in line.reserve:
-                    room_bool = False
-                    room_reservations = existing_by_room.get(room.id, [])
-
-                    for reserv in room_reservations:
-                        check_in = reserv.check_in
-                        check_out = reserv.check_out
-
-                        # Overlap check logic
-                        if (
-                            (check_in <= reserv_checkin < check_out)
-                            or (check_in < reserv_checkout <= check_out)
-                            or (
-                                reserv_checkin <= check_in
-                                and reserv_checkout >= check_out
-                            )
-                        ):
-                            room_bool = True
-                            overlap_dates = self.check_overlap(
-                                reservation.checkin.date(), reservation.checkout.date()
-                            ) & self.check_overlap(
-                                reserv.check_in.date(), reserv.check_out.date()
-                            )
-                            raise ValidationError(
-                                self.env._(
-                                    """You tried to Confirm Reservation with
-                                    room %(room_name)s which is already
-                                    reserved in this period.
-                                    Overlap Dates: %(overlap_dates)s""",
-                                    room_name=room.name,
-                                    overlap_dates=overlap_dates,
-                                )
-                            )
-
-                    if not room_bool:
-                        vals_list.append(
-                            {
-                                "room_id": room.id,
-                                "check_in": reservation.checkin,
-                                "check_out": reservation.checkout,
-                                "state": "assigned",
-                                "reservation_id": reservation.id,
-                            }
-                        )
-                        room.write({"isroom": False, "status": "occupied"})
-
+            rooms = reservation.reservation_line.reserve
+            busy = rooms & room_obj._get_booked_rooms(
+                reservation.checkin, reservation.checkout
+            )
+            if busy:
+                raise ValidationError(
+                    self.env._(
+                        "You tried to Confirm Reservation with room %(room_name)s "
+                        "which is already reserved in this period.",
+                        room_name=", ".join(busy.mapped("name")),
+                    )
+                )
+            reservation_line_obj.create(
+                [
+                    {
+                        "room_id": room.id,
+                        "check_in": reservation.checkin,
+                        "check_out": reservation.checkout,
+                        "state": "assigned",
+                        "reservation_id": reservation.id,
+                    }
+                    for room in rooms
+                ]
+            )
             reservation.state = "confirm"
-
-        if vals_list:
-            reservation_line_obj.create(vals_list)
+        self.reservation_line.reserve._update_room_status()
         return True
 
     def cancel_reservation(self):
@@ -302,23 +274,17 @@ class HotelReservation(models.Model):
         @param self: The object pointer
         @return: cancel record set for hotel room reservation line.
         """
-        room_res_line_obj = self.env["hotel.room.reservation.line"]
+        self._check_state(("draft", "confirm"), self.env._("Cancelling"))
         self.state = "cancel"
-
-        # Batch delete room reservation lines
-        room_reservation_lines = room_res_line_obj.search(
+        self.env["hotel.room.reservation.line"].search(
             [("reservation_id", "in", self.ids)]
-        )
-        room_reservation_lines.unlink()
-
-        # Batch update rooms to available
-        rooms = self.mapped("reservation_line.reserve")
-        if rooms:
-            rooms.write({"isroom": True, "status": "available"})
+        ).unlink()
+        self.reservation_line.reserve._update_room_status()
         return True
 
     def set_to_draft_reservation(self):
-        self.update({"state": "draft"})
+        self._check_state(("cancel",), self.env._("Resetting to draft"))
+        self.state = "draft"
 
     def action_send_reservation_mail(self):
         """
@@ -326,29 +292,21 @@ class HotelReservation(models.Model):
         template message loaded by default.
         @param self: object pointer
         """
-        self.ensure_one(), "This is for a single id at a time."
-        template_id = self.env.ref(
-            "hotel_reservation.email_template_hotel_reservation"
-        ).id
-        compose_form_id = self.env.ref("mail.email_compose_message_wizard_form").id
-        ctx = {
-            "default_model": "hotel.reservation",
-            "default_res_ids": self.ids,
-            "default_use_template": bool(template_id),
-            "default_template_id": template_id,
-            "default_composition_mode": "comment",
-            "force_send": True,
-            "mark_so_as_sent": True,
-        }
+        self.ensure_one()
+        template = self.env.ref("hotel_reservation.email_template_hotel_reservation")
+        compose_form = self.env.ref("mail.email_compose_message_wizard_form")
         return {
             "type": "ir.actions.act_window",
             "view_mode": "form",
             "res_model": "mail.compose.message",
-            "views": [(compose_form_id, "form")],
-            "view_id": compose_form_id,
+            "views": [(compose_form.id, "form")],
             "target": "new",
-            "context": ctx,
-            "force_send": True,
+            "context": {
+                "default_model": "hotel.reservation",
+                "default_res_ids": self.ids,
+                "default_template_id": template.id,
+                "default_composition_mode": "comment",
+            },
         }
 
     @api.model
@@ -361,19 +319,22 @@ class HotelReservation(models.Model):
         @param self: The object pointer
         @return: send a mail
         """
-        now_date = fields.Date.today()
-        template_id = self.env.ref(
+        template = self.env.ref(
             "hotel_reservation.mail_template_reservation_reminder_24hrs"
         )
-        for reserv_rec in self:
-            checkin_date = reserv_rec.checkin
-            difference = relativedelta(now_date, checkin_date)
-            if (
-                difference.days == -1
-                and reserv_rec.partner_id.email
-                and reserv_rec.state == "confirm"
-            ):
-                template_id.send_mail(reserv_rec.id, force_send=True)
+        tomorrow = datetime.combine(
+            fields.Date.context_today(self) + timedelta(days=1), time.min
+        )
+        reservations = self.search(
+            [
+                ("state", "=", "confirm"),
+                ("checkin", ">=", tomorrow),
+                ("checkin", "<", tomorrow + timedelta(days=1)),
+                ("partner_id.email", "!=", False),
+            ]
+        )
+        for reservation in reservations:
+            template.send_mail(reservation.id)
         return True
 
     def create_folio(self):
@@ -383,54 +344,50 @@ class HotelReservation(models.Model):
         @param self: The object pointer
         @return: new record set for hotel folio.
         """
+        self._check_state(("confirm",), self.env._("Creating a folio"))
         hotel_folio_obj = self.env["hotel.folio"]
         for reservation in self:
-            folio_lines = []
-            checkin_date = reservation["checkin"]
-            checkout_date = reservation["checkout"]
-            duration_vals = self._onchange_check_dates(
-                checkin_date=checkin_date,
-                checkout_date=checkout_date,
-                duration=False,
+            duration = (
+                reservation._onchange_check_dates(
+                    checkin_date=reservation.checkin,
+                    checkout_date=reservation.checkout,
+                ).get("duration")
+                or 0.0
             )
-            duration = duration_vals.get("duration") or 0.0
-            folio_vals = {
-                "date_order": reservation.date_order,
-                "company_id": reservation.company_id.id,
-                "partner_id": reservation.partner_id.id,
-                "pricelist_id": reservation.pricelist_id.id,
-                "partner_invoice_id": reservation.partner_invoice_id.id
-                or reservation.partner_id.id,
-                "partner_shipping_id": reservation.partner_shipping_id.id
-                or reservation.partner_id.id,
-                "checkin_date": reservation.checkin,
-                "checkout_date": reservation.checkout,
-                "duration": duration,
-                "reservation_id": reservation.id,
-            }
-            for line in reservation.reservation_line:
-                for r in line.reserve:
-                    folio_lines.append(
-                        (
-                            0,
-                            0,
+            folio = hotel_folio_obj.create(
+                {
+                    "date_order": reservation.date_order,
+                    "company_id": reservation.company_id.id,
+                    "partner_id": reservation.partner_id.id,
+                    "pricelist_id": reservation.pricelist_id.id,
+                    "partner_invoice_id": reservation.partner_invoice_id.id
+                    or reservation.partner_id.id,
+                    "partner_shipping_id": reservation.partner_shipping_id.id
+                    or reservation.partner_id.id,
+                    "checkin_date": reservation.checkin,
+                    "checkout_date": reservation.checkout,
+                    "duration": duration,
+                    "reservation_id": reservation.id,
+                    "room_line_ids": [
+                        Command.create(
                             {
-                                "checkin_date": checkin_date,
-                                "checkout_date": checkout_date,
-                                "product_id": r.product_id and r.product_id.id,
-                                "name": reservation["reservation_no"],
-                                "price_unit": r.list_price,
+                                "checkin_date": reservation.checkin,
+                                "checkout_date": reservation.checkout,
+                                "product_id": room.product_id.id,
+                                "name": reservation.reservation_no,
+                                "price_unit": room.list_price,
                                 "product_uom_qty": duration,
                                 "is_reserved": True,
-                            },
+                            }
                         )
-                    )
-                    r.write({"status": "occupied", "isroom": False})
-                folio_vals.update({"room_line_ids": folio_lines})
-                folio = hotel_folio_obj.create(folio_vals)
-                for rm_line in folio.room_line_ids:
-                    rm_line._onchange_product_id_warning()
-                self.write({"folio_id": [(6, 0, folio.ids)], "state": "done"})
+                        for room in reservation.reservation_line.reserve
+                    ],
+                }
+            )
+            for rm_line in folio.room_line_ids:
+                rm_line._onchange_product_id_warning()
+            reservation.write({"folio_id": [Command.set(folio.ids)], "state": "done"})
+        self.reservation_line.reserve._update_room_status()
         return True
 
     def _onchange_check_dates(
@@ -446,26 +403,30 @@ class HotelReservation(models.Model):
         @param self: object pointer
         @return: Duration and checkout_date
         """
-        value = {}
+        # Same rule as hotel.folio.line._onchange_checkin_checkout_dates, so
+        # the folio created from the reservation keeps the same quantity when
+        # its dates are edited: whole days, a started day counts as a day.
         configured_addition_hours = self.company_id.additional_hours
         duration = 0
         if checkin_date and checkout_date:
             dur = checkout_date - checkin_date
-            duration = dur.days + 1
-            if configured_addition_hours > 0:
-                additional_hours = abs(dur.seconds / 60)
-                if additional_hours <= abs(configured_addition_hours * 60):
-                    duration -= 1
-        value.update({"duration": duration})
-        return value
+            duration = dur.days + 1 if dur.seconds else dur.days
+            if (
+                configured_addition_hours > 0
+                and dur.seconds / 3600 >= configured_addition_hours
+            ):
+                duration += 1
+        return {"duration": duration}
 
     def open_folio_view(self):
         folios = self.mapped("folio_id")
-        action = self.env.ref("hotel.open_hotel_folio1_form_tree_all").read()[0]
+        action_xmlid = "vertical_hotel.open_hotel_folio1_form_tree_all"
+        action = self.env["ir.actions.act_window"]._for_xml_id(action_xmlid)
         if len(folios) > 1:
             action["domain"] = [("id", "in", folios.ids)]
         elif len(folios) == 1:
-            action["views"] = [(self.env.ref("hotel.view_hotel_folio_form").id, "form")]
+            form_view = self.env.ref("vertical_hotel.view_hotel_folio_form")
+            action["views"] = [(form_view.id, "form")]
             action["res_id"] = folios.id
         else:
             action = {"type": "ir.actions.act_window_close"}
@@ -477,83 +438,55 @@ class HotelReservationLine(models.Model):
     _description = "Reservation Line"
 
     name = fields.Char()
-    line_id = fields.Many2one("hotel.reservation")
+    line_id = fields.Many2one("hotel.reservation", index=True, ondelete="cascade")
     reserve = fields.Many2many(
         "hotel.room",
         "hotel_reservation_line_room_rel",
         "hotel_reservation_line_id",
         "room_id",
-        domain="[('isroom','=',True),\
-                               ('room_categ_id','=',categ_id)]",
+        domain="[('id', 'in', available_room_ids)]",
     )
     categ_id = fields.Many2one("hotel.room.type", "Room Type")
+    available_room_ids = fields.Many2many(
+        "hotel.room",
+        compute="_compute_available_room_ids",
+        help="Rooms of the room type that are free for the stay.",
+    )
+
+    @api.depends("categ_id", "line_id.checkin", "line_id.checkout")
+    def _compute_available_room_ids(self):
+        room_obj = self.env["hotel.room"]
+        for line in self:
+            domain = [("room_categ_id", "=", line.categ_id.id)] if line.categ_id else []
+            rooms = room_obj.search(domain)
+            reservation = line.line_id
+            if reservation.checkin and reservation.checkout:
+                rooms -= room_obj._get_booked_rooms(
+                    reservation.checkin,
+                    reservation.checkout,
+                    exclude_reservations=reservation._origin,
+                )
+            line.available_room_ids = rooms
 
     @api.onchange("categ_id")
     def on_change_categ(self):
         """
         When you change categ_id it check checkin and checkout are
-        filled or not if not then raise warning
+        filled or not if not then show a warning
         ---------------
         @param self: object pointer
         """
-        checkin = self.line_id.checkin
-        checkout = self.line_id.checkout
-        if not checkin or not checkout:
-            raise ValidationError(
-                self.env._(
-                    "Before choosing a room,\n You have to "
-                    "select a Check in date and a Check out "
-                    " date in the reservation form."
-                )
-            )
-
-        # Search for all rooms of the selected category
-        rooms = self.env["hotel.room"].search(
-            [("room_categ_id", "=", self.categ_id.id)]
-        )
-
-        # Batch search for all overlapping reservation lines
-        overlapping_res = self.env["hotel.room.reservation.line"].search(
-            [
-                ("room_id", "in", rooms.ids),
-                ("status", "!=", "cancel"),
-                "|",
-                "|",
-                "&",
-                ("check_in", "<=", checkin),
-                ("check_out", ">", checkin),
-                "&",
-                ("check_in", "<", checkout),
-                ("check_out", ">=", checkout),
-                "&",
-                ("check_in", ">=", checkin),
-                ("check_out", "<=", checkout),
-            ]
-        )
-        reserved_room_ids = overlapping_res.mapped("room_id").ids
-
-        # Batch search for all overlapping folio room lines
-        overlapping_folio = self.env["folio.room.line"].search(
-            [
-                ("room_id", "in", rooms.ids),
-                ("status", "!=", "cancel"),
-                "|",
-                "|",
-                "&",
-                ("check_in", "<=", checkin),
-                ("check_out", ">", checkin),
-                "&",
-                ("check_in", "<", checkout),
-                ("check_out", ">=", checkout),
-                "&",
-                ("check_in", ">=", checkin),
-                ("check_out", "<=", checkout),
-            ]
-        )
-        reserved_room_ids += overlapping_folio.mapped("room_id").ids
-
-        available_room_idsList = [r.id for r in rooms if r.id not in reserved_room_ids]
-        return {"domain": {"reserve": [("id", "in", available_room_idsList)]}}
+        if self.categ_id and not (self.line_id.checkin and self.line_id.checkout):
+            return {
+                "warning": {
+                    "title": self.env._("Missing dates"),
+                    "message": self.env._(
+                        "Before choosing a room,\n You have to "
+                        "select a Check in date and a Check out "
+                        " date in the reservation form."
+                    ),
+                }
+            }
 
     def unlink(self):
         """
@@ -561,19 +494,19 @@ class HotelReservationLine(models.Model):
         @param self: The object pointer
         @return: True/False.
         """
-        hotel_room_reserv_line_obj = self.env["hotel.room.reservation.line"]
-        for reserv_rec in self:
-            for rec in reserv_rec.reserve:
-                myobj = hotel_room_reserv_line_obj.search(
-                    [
-                        ("room_id", "=", rec.id),
-                        ("reservation_id", "=", reserv_rec.line_id.id),
-                    ]
-                )
-                if myobj:
-                    rec.write({"isroom": True, "status": "available"})
-                    myobj.unlink()
-        return super().unlink()
+        bookings = self.env["hotel.room.reservation.line"]
+        for line in self:
+            bookings |= bookings.search(
+                [
+                    ("room_id", "in", line.reserve.ids),
+                    ("reservation_id", "=", line.line_id.id),
+                ]
+            )
+        rooms = bookings.room_id
+        bookings.unlink()
+        res = super().unlink()
+        rooms._update_room_status()
+        return res
 
 
 class HotelRoomReservationLine(models.Model):
@@ -581,11 +514,11 @@ class HotelRoomReservationLine(models.Model):
     _description = "Hotel Room Reservation"
     _rec_name = "room_id"
 
-    room_id = fields.Many2one("hotel.room")
-    check_in = fields.Datetime("Check In Date", required=True)
-    check_out = fields.Datetime("Check Out Date", required=True)
+    room_id = fields.Many2one("hotel.room", index=True)
+    check_in = fields.Datetime("Check In Date", required=True, index=True)
+    check_out = fields.Datetime("Check Out Date", required=True, index=True)
     state = fields.Selection(
         [("assigned", "Assigned"), ("unassigned", "Unassigned")], "Room Status"
     )
-    reservation_id = fields.Many2one("hotel.reservation", "Reservation")
+    reservation_id = fields.Many2one("hotel.reservation", index=True)
     status = fields.Selection(string="state", related="reservation_id.state")

@@ -1,66 +1,28 @@
-.table_header {
-    text-align: center;
-    min-width: 100px;
+.o_room_summary .o_room_summary_room {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background-color: var(--body-bg, #fff);
+}
+
+.o_room_summary .o_room_summary_cell {
+    min-width: 6rem;
+    cursor: pointer;
     vertical-align: middle;
 }
 
-.table_reserved {
-    background-color: red;
-    color: white;
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
-    cursor: pointer;
-}
-.table_reserved1 {
-    background-color: blue;
-    color: white;
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
-    cursor: pointer;
-}
-.table_free {
-    background-color: green;
-    color: white;
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
-    cursor: pointer;
+.o_room_summary .o_room_summary_free {
+    background-color: rgba(25, 135, 84, 0.15);
 }
 
-/*$color_1: white;
-$background-color_1: red;
-$background-color_2: blue;
-$background-color_3: green;
+.o_room_summary .o_room_summary_reserved {
+    background-color: rgba(220, 53, 69, 0.25);
+}
 
-.table_header {
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
+.o_room_summary .o_room_summary_folio {
+    background-color: rgba(13, 110, 253, 0.25);
 }
-.table_reserved {
-    background-color: $background-color_1;
-    color: $color_1;
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
-    cursor: pointer;
+
+.o_room_summary .o_room_summary_cell:hover {
+    filter: brightness(0.9);
 }
-.table_reserved1 {
-    background-color: $background-color_2;
-    color: $color_1;
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
-    cursor: pointer;
-}
-.table_free {
-    background-color: $background-color_3;
-    color: $color_1;
-    text-align: center;
-    min-width: 100px;
-    vertical-align: middle;
-    cursor: pointer;
-}
-*/

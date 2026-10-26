@@ -1,4 +1,7 @@
-from odoo import api, fields, models
+# Copyright (C) 2024-TODAY Serpent Consulting Services Pvt. Ltd. (<http://www.serpentcs.com>).
+# License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+
+from odoo import api, models
 from odoo.fields import Domain
 
 
@@ -6,34 +9,15 @@ class ProductProduct(models.Model):
     _inherit = "product.product"
 
     @api.model
-    def search_fetch(self, domain, field_names, offset=0, limit=None, order=None):
-        """
-        Custom search_fetch override:
-          - When called with context["from_room"],
-            restricts to available rooms for given dates.
-        """
-        context = self.env.context
-        if context.get("folio"):
-            checkin_date = context.get("checkin_date")
-            checkout_date = context.get("checkout_date")
-
-            if isinstance(checkin_date, str):
-                checkin_date = fields.Datetime.from_string(checkin_date)
-            if isinstance(checkout_date, str):
-                checkout_date = fields.Datetime.from_string(checkout_date)
-
-            if checkin_date and checkout_date:
-                HotelRoom = self.env["hotel.reservation"].sudo()
-                rooms = HotelRoom.search(
-                    [
-                        ("checkin", "<=", checkin_date),
-                        ("state", "!=", "cancel"),
-                        ("checkout", ">=", checkin_date),
-                    ]
-                )
-                product_ids = rooms.mapped("reservation_line.reserve.product_id")
-                domain = Domain(domain) & Domain("id", "not in", product_ids.ids)
-
-        return super().search_fetch(
-            domain, field_names, offset=offset, limit=limit, order=order
+    def _get_available_room_domain(self, checkin_date, checkout_date):
+        """Rooms offered on a folio line: also leave out the rooms of
+        confirmed reservations that have no folio yet (the others are
+        already on their folio's room lines)."""
+        domain = super()._get_available_room_domain(checkin_date, checkout_date)
+        reserved = self.env["hotel.room"]._get_booked_rooms(
+            checkin_date,
+            checkout_date,
+            include_folios=False,
+            reservation_states=("confirm",),
         )
+        return Domain.AND([domain, [("id", "not in", reserved.product_id.ids)]])

@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
     <!-- Email Template For Hotel Reservation -->
     <record id="email_template_hotel_reservation" model="mail.template">

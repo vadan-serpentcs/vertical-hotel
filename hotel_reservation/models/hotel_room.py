@@ -1,21 +1,17 @@
 # Copyright (C) 2024-TODAY Serpent Consulting Services Pvt. Ltd. (<http://www.serpentcs.com>).
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError, ValidationError
-from odoo.tools import DEFAULT_SERVER_DATETIME_FORMAT as dt
+from odoo.exceptions import ValidationError
+from odoo.tools.misc import format_date
 
-_logger = logging.getLogger(__name__)
-
-try:
-    import pytz
-except (OSError, ImportError) as err:
-    _logger.debug(err)
+# Longest period shown by the reservation summary, in days.
+SUMMARY_MAX_DAYS = 92
 
 
 class HotelRoom(models.Model):
@@ -35,6 +31,67 @@ class HotelRoom(models.Model):
                 )
 
     @api.model
+    def _get_booked_rooms(
+        self,
+        checkin,
+        checkout,
+        exclude_reservations=None,
+        include_folios=True,
+        reservation_states=None,
+    ):
+        """Rooms with a stay overlapping [checkin, checkout).
+
+        A stay blocks a room when it starts before the other one ends: a
+        stay ending when the next one starts does not (same rule as
+        hotel.folio's double-booking check). Stays are the room bookings of
+        reservations that are not cancelled and, with ``include_folios``,
+        the room lines of folios that are not cancelled."""
+        booking_domain = [
+            ("check_in", "<", checkout),
+            ("check_out", ">", checkin),
+            ("status", "not in", ("cancel", "draft")),
+        ]
+        if reservation_states:
+            booking_domain.append(("status", "in", tuple(reservation_states)))
+        if exclude_reservations:
+            booking_domain.append(
+                ("reservation_id", "not in", exclude_reservations.ids)
+            )
+        rooms = (
+            self.env["hotel.room.reservation.line"]
+            .sudo()
+            .search(booking_domain)
+            .room_id
+        )
+        if include_folios:
+            rooms |= (
+                self.env["folio.room.line"]
+                .sudo()
+                .search(
+                    [
+                        ("check_in", "<", checkout),
+                        ("check_out", ">", checkin),
+                        ("folio_id.state", "!=", "cancel"),
+                    ]
+                )
+                .room_id
+            )
+        return rooms.with_env(self.env)
+
+    def _update_room_status(self):
+        """Occupied while a stay is in progress, available otherwise.
+
+        Only the rooms whose status changes are written."""
+        now = fields.Datetime.now()
+        in_house = self._get_booked_rooms(now, now + timedelta(seconds=1))
+        to_occupy = self.filtered(lambda r: r in in_house and r.status != "occupied")
+        to_free = self.filtered(lambda r: r not in in_house and r.status != "available")
+        if to_occupy:
+            to_occupy.write({"isroom": False})
+        if to_free:
+            to_free.write({"isroom": True})
+
+    @api.model
     def cron_room_line(self):
         """
         This method is for scheduler
@@ -44,32 +101,8 @@ class HotelRoom(models.Model):
         @param self: The object pointer
         @return: update status of hotel room reservation line
         """
-        reservation_line_obj = self.env["hotel.room.reservation.line"]
-        folio_room_line_obj = self.env["folio.room.line"]
-        curr_date = fields.Datetime.now()
-        current_domain = [
-            ("check_in", "<=", curr_date),
-            ("check_out", ">=", curr_date),
-        ]
-
-        # Rooms currently booked through a reservation
-        reserved_rooms = reservation_line_obj.search(current_domain).room_id
-        # Rooms currently booked through a folio
-        folio_rooms = folio_room_line_obj.search(current_domain).room_id
-
-        conflicting_rooms = reserved_rooms & folio_rooms
-        if conflicting_rooms:
-            raise ValidationError(
-                self.env._(
-                    "Please Check Rooms Status for %(room_name)s.",
-                    room_name=conflicting_rooms[0].name,
-                )
-            )
-
-        occupied_rooms = reserved_rooms | folio_rooms
-        occupied_rooms.write({"isroom": False, "color": 2})
-        free_rooms = self.search([("id", "not in", occupied_rooms.ids)])
-        free_rooms.write({"isroom": True, "color": 5})
+        # every room: the status of each one depends on the current time
+        self.search([])._update_room_status()  # pylint: disable=no-search-all
         return True
 
 
@@ -78,12 +111,23 @@ class RoomReservationSummary(models.Model):
     _description = "Room reservation summary"
 
     name = fields.Char("Reservation Summary", default="Reservations Summary")
-    date_from = fields.Datetime(default=lambda self: fields.Date.today())
-    date_to = fields.Datetime(
-        default=lambda self: fields.Date.today() + relativedelta(days=30),
+    date_from = fields.Date(default=fields.Date.context_today)
+    date_to = fields.Date(
+        default=lambda self: fields.Date.context_today(self) + relativedelta(days=30),
     )
-    summary_header = fields.Text()
-    room_summary = fields.Text()
+    summary_data = fields.Json(compute="_compute_summary_data")
+
+    @api.constrains("date_from", "date_to")
+    def _check_dates(self):
+        for summary in self:
+            if (
+                summary.date_from
+                and summary.date_to
+                and summary.date_from > summary.date_to
+            ):
+                raise ValidationError(
+                    self.env._("Checkout date should be later than Checkin date.")
+                )
 
     def room_reservation(self):
         """
@@ -91,7 +135,7 @@ class RoomReservationSummary(models.Model):
         """
         resource_id = self.env.ref("hotel_reservation.view_hotel_reservation_form").id
         return {
-            "name": self.env._("Reconcile Write-Off"),
+            "name": self.env._("Room Reservation"),
             "context": dict(self.env.context),
             "view_mode": "form",
             "res_model": "hotel.reservation",
@@ -100,172 +144,113 @@ class RoomReservationSummary(models.Model):
             "target": "new",
         }
 
-    @api.onchange("date_from", "date_to")  # noqa C901 (function is too complex)
-    def get_room_summary(self):  # noqa C901 (function is too complex)
-        """
-        @param self: object pointer
-        """
-        res = {}
-        all_detail = []
-        room_obj = self.env["hotel.room"]
-        reservation_line_obj = self.env["hotel.room.reservation.line"]
-        folio_room_line_obj = self.env["folio.room.line"]
-        date_range_list = []
-        main_header = []
-        summary_header_list = ["Rooms"]
-        if self.date_from and self.date_to:
-            if self.date_from > self.date_to:
-                raise UserError(
-                    self.env._("Checkout date should be later than Checkin date.")
-                )
-            timezone = pytz.timezone(self.env.context.get("tz") or "UTC")
-            d_frm_obj = (
-                (self.date_from)
-                .replace(tzinfo=pytz.timezone("UTC"))
-                .astimezone(timezone)
-            )
-            d_to_obj = (
-                (self.date_to).replace(tzinfo=pytz.timezone("UTC")).astimezone(timezone)
-            )
-            temp_date = d_frm_obj
-            while temp_date <= d_to_obj:
-                val = ""
-                val = (
-                    str(temp_date.strftime("%a"))
-                    + " "
-                    + str(temp_date.strftime("%b"))
-                    + " "
-                    + str(temp_date.strftime("%d"))
-                )
-                summary_header_list.append(val)
-                date_range_list.append(temp_date.strftime(dt))
-                temp_date = temp_date + timedelta(days=1)
-            all_detail.append(summary_header_list)
-            # pylint: disable=no-search-all
-            room_ids = room_obj.search([])
-            all_room_detail = []
-            for room in room_ids:
-                room_detail = {}
-                room_list_stats = []
-                room_detail.update({"name": room.name or ""})
-                if not room.room_reservation_line_ids and not room.room_line_ids:
-                    for chk_date in date_range_list:
-                        room_list_stats.append(
-                            {
-                                "state": "Free",
-                                "date": chk_date,
-                                "room_id": room.id,
-                            }
-                        )
-                else:
-                    for chk_date in date_range_list:
-                        ch_dt = chk_date[:10] + " 23:59:59"
-                        ttime = datetime.strptime(ch_dt, dt)
-                        c = ttime.replace(tzinfo=timezone).astimezone(
-                            pytz.timezone("UTC")
-                        )
-                        chk_date = c.strftime(dt)
-                        reserline_ids = room.room_reservation_line_ids.ids
-                        reservline_ids = reservation_line_obj.search(
-                            [
-                                ("id", "in", reserline_ids),
-                                ("check_in", "<=", chk_date),
-                                ("check_out", ">=", chk_date),
-                                ("state", "=", "assigned"),
-                            ]
-                        )
-                        if not reservline_ids:
-                            sdt = dt
-                            chk_date = datetime.strptime(chk_date, sdt)
-                            chk_date = datetime.strftime(
-                                chk_date - timedelta(days=1), sdt
-                            )
-                            reservline_ids = reservation_line_obj.search(
-                                [
-                                    ("id", "in", reserline_ids),
-                                    ("check_in", "<=", chk_date),
-                                    ("check_out", ">=", chk_date),
-                                    ("state", "=", "assigned"),
-                                ]
-                            )
-                            for res_room in reservline_ids:
-                                cid = res_room.check_in
-                                cod = res_room.check_out
-                                dur = cod - cid
-                                if room_list_stats:
-                                    count = 0
-                                    for rlist in room_list_stats:
-                                        cidst = datetime.strftime(cid, dt)
-                                        codst = datetime.strftime(cod, dt)
-                                        rm_id = res_room.room_id.id
-                                        ci = rlist.get("date") >= cidst
-                                        co = rlist.get("date") <= codst
-                                        rm = rlist.get("room_id") == rm_id
-                                        st = rlist.get("state") == "Reserved"
-                                        if ci and co and rm and st:
-                                            count += 1
-                                    if count - dur.days == 0:
-                                        c_id = self.env.company
-                                        con_add = 0
-                                        amin = 0.0
-                                        # When configured_addition_hours is
-                                        # greater than zero then we calculate
-                                        # additional minutes
-                                        if c_id:
-                                            con_add = c_id.additional_hours
-                                        if con_add > 0:
-                                            amin = abs(con_add * 60)
-                                        hr_dur = abs(dur.seconds / 60)
-                                        if amin > 0:
-                                            # When additional minutes is greater
-                                            # than zero then check duration with
-                                            # extra minutes and give the room
-                                            # reservation status is reserved
-                                            # --------------------------
-                                            if hr_dur >= amin:
-                                                reservline_ids = True
-                                            else:
-                                                reservline_ids = False
-                                        else:
-                                            if hr_dur > 0:
-                                                reservline_ids = True
-                                            else:
-                                                reservline_ids = False
-                                    else:
-                                        reservline_ids = False
-                        fol_room_line_ids = room.room_line_ids.ids
-                        chk_state = ["draft", "cancel"]
-                        folio_resrv_ids = folio_room_line_obj.search(
-                            [
-                                ("id", "in", fol_room_line_ids),
-                                ("check_in", "<=", chk_date),
-                                ("check_out", ">=", chk_date),
-                                ("status", "not in", chk_state),
-                            ]
-                        )
-                        if reservline_ids or folio_resrv_ids:
-                            room_list_stats.append(
-                                {
-                                    "state": "Reserved",
-                                    "date": chk_date,
-                                    "room_id": room.id,
-                                    "is_draft": "No",
-                                    "data_model": "",
-                                    "data_id": 0,
-                                }
-                            )
-                        else:
-                            room_list_stats.append(
-                                {
-                                    "state": "Free",
-                                    "date": chk_date,
-                                    "room_id": room.id,
-                                }
-                            )
+    @api.depends("date_from", "date_to")
+    def _compute_summary_data(self):
+        for summary in self:
+            summary.summary_data = summary._get_summary_data()
 
-                room_detail.update({"value": room_list_stats})
-                all_room_detail.append(room_detail)
-            main_header.append({"header": summary_header_list})
-            self.summary_header = str(main_header)
-            self.room_summary = str(all_room_detail)
-        return res
+    def get_room_summary(self):
+        """Kept for callers of the 19.0 API: the summary is a computed field."""
+        return self._get_summary_data()
+
+    def _get_summary_data(self):
+        """Rooms × days grid of the period, in the user's timezone.
+
+        ``{"days": [{"date", "label"}], "rooms": [{"id", "name", "cells":
+        [{"date", "state", "res_model", "res_id", "label"}]}]}`` where state
+        is ``free``, ``reserved`` (confirmed reservation) or ``folio``."""
+        empty = {"days": [], "rooms": []}
+        if not (self.date_from and self.date_to) or self.date_from > self.date_to:
+            return empty
+        date_to = min(self.date_to, self.date_from + timedelta(days=SUMMARY_MAX_DAYS))
+        days = [
+            self.date_from + timedelta(days=i)
+            for i in range((date_to - self.date_from).days + 1)
+        ]
+        tz = ZoneInfo(self.env.context.get("tz") or self.env.user.tz or "UTC")
+
+        def to_utc(day):
+            local = datetime.combine(day, time.min, tzinfo=tz)
+            return local.astimezone(UTC).replace(tzinfo=None)
+
+        def to_local_date(value):
+            return value.replace(tzinfo=UTC).astimezone(tz).date()
+
+        start, end = to_utc(days[0]), to_utc(days[-1] + timedelta(days=1))
+        # pylint: disable=no-search-all
+        rooms = self.env["hotel.room"].search([], order="name, id")
+        stays = {}  # (room id, day) -> cell
+
+        def mark(room, check_in, check_out, cell):
+            first, last = to_local_date(check_in), to_local_date(check_out)
+            # nights: the departure day is free again, a same-day stay takes one day
+            day, stop = first, max(last, first + timedelta(days=1))
+            while day < stop:
+                stays[(room.id, day)] = cell
+                day += timedelta(days=1)
+
+        bookings = self.env["hotel.room.reservation.line"].search(
+            [
+                ("room_id", "in", rooms.ids),
+                ("check_in", "<", end),
+                ("check_out", ">", start),
+                ("reservation_id.state", "=", "confirm"),
+            ]
+        )
+        for booking in bookings:
+            mark(
+                booking.room_id,
+                booking.check_in,
+                booking.check_out,
+                {
+                    "state": "reserved",
+                    "res_model": "hotel.reservation",
+                    "res_id": booking.reservation_id.id,
+                    "label": booking.reservation_id.reservation_no or "",
+                },
+            )
+        # folios last: a reservation turned into a folio shows the folio
+        folio_lines = self.env["folio.room.line"].search(
+            [
+                ("room_id", "in", rooms.ids),
+                ("check_in", "<", end),
+                ("check_out", ">", start),
+                ("folio_id.state", "!=", "cancel"),
+            ]
+        )
+        for line in folio_lines:
+            mark(
+                line.room_id,
+                line.check_in,
+                line.check_out,
+                {
+                    "state": "folio",
+                    "res_model": "hotel.folio",
+                    "res_id": line.folio_id.id,
+                    "label": line.folio_id.display_name or "",
+                },
+            )
+        free = {"state": "free", "res_model": False, "res_id": False, "label": ""}
+        return {
+            "days": [
+                {
+                    "date": fields.Date.to_string(day),
+                    "label": format_date(self.env, day, date_format="EEE d MMM"),
+                }
+                for day in days
+            ],
+            "rooms": [
+                {
+                    "id": room.id,
+                    "name": room.name or "",
+                    "cells": [
+                        dict(
+                            stays.get((room.id, day), free),
+                            date=fields.Date.to_string(day),
+                        )
+                        for day in days
+                    ],
+                }
+                for room in rooms
+            ],
+        }

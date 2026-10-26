@@ -1,8 +1,15 @@
 # Copyright (C) 2024-TODAY Serpent Consulting Services Pvt. Ltd. (<http://www.serpentcs.com>).
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Command
+
+# Check-in time proposed when booking a free day of the reservation summary.
+DEFAULT_CHECKIN_TIME = time(12, 0)
 
 
 class QuickRoomReservation(models.TransientModel):
@@ -13,16 +20,15 @@ class QuickRoomReservation(models.TransientModel):
     check_in = fields.Datetime(required=True)
     check_out = fields.Datetime(required=True)
     room_id = fields.Many2one("hotel.room", required=True)
-    company_id = fields.Many2one("res.company", "Hotel", required=True)
+    company_id = fields.Many2one(
+        "res.company", "Hotel", required=True, default=lambda self: self.env.company
+    )
     pricelist_id = fields.Many2one("product.pricelist", "pricelist")
-    partner_invoice_id = fields.Many2one(
-        "res.partner", "Invoice Address", required=True
-    )
-    partner_order_id = fields.Many2one("res.partner", "Ordering Contact", required=True)
-    partner_shipping_id = fields.Many2one(
-        "res.partner", "Delivery Address", required=True
-    )
-    adults = fields.Integer()
+    # filled from the customer; the customer is used when left empty
+    partner_invoice_id = fields.Many2one("res.partner", "Invoice Address")
+    partner_order_id = fields.Many2one("res.partner", "Ordering Contact")
+    partner_shipping_id = fields.Many2one("res.partner", "Delivery Address")
+    adults = fields.Integer(default=1)
 
     @api.constrains("check_in", "check_out")
     def _check_dates(self):
@@ -67,6 +73,15 @@ class QuickRoomReservation(models.TransientModel):
                 }
             )
 
+    def _day_to_checkin(self, day):
+        """A day of the summary (``YYYY-MM-DD``, user's timezone) as the
+        UTC check-in datetime, at DEFAULT_CHECKIN_TIME."""
+        tz = ZoneInfo(self.env.context.get("tz") or self.env.user.tz or "UTC")
+        local = datetime.combine(
+            fields.Date.to_date(day), DEFAULT_CHECKIN_TIME, tzinfo=tz
+        )
+        return local.astimezone(UTC).replace(tzinfo=None)
+
     @api.model
     def default_get(self, fields):
         """
@@ -77,42 +92,74 @@ class QuickRoomReservation(models.TransientModel):
         """
         res = super().default_get(fields)
         context = self.env.context
-        if "date" in context:
+        day = context.get("quick_reservation_date")
+        if day:
+            check_in = self._day_to_checkin(day)
+            res.update(
+                {"check_in": check_in, "check_out": check_in + timedelta(days=1)}
+            )
+        elif "date" in context:
             res.update({"check_in": context["date"]})
         if "room_id" in context:
             res.update({"room_id": int(context["room_id"])})
         return res
+
+    def _get_pricelist(self):
+        """The chosen pricelist, else the customer's, else the hotel's first."""
+        self.ensure_one()
+        pricelist = (
+            self.pricelist_id
+            or self.partner_id.property_product_pricelist
+            or self.env["product.pricelist"].search(
+                [("company_id", "in", [False, self.company_id.id])], limit=1
+            )
+        )
+        if not pricelist:
+            raise UserError(self.env._("Please set a pricelist for the reservation."))
+        return pricelist
 
     def room_reserve(self):
         """
         This method create a new record for hotel.reservation
         -----------------------------------------------------
         @param self: The object pointer
-        @return: new record set for hotel reservation.
+        @return: action opening the new hotel reservation.
         """
-        hotel_res_obj = self.env["hotel.reservation"]
+        reservations = self.env["hotel.reservation"]
         for res in self:
-            rec = hotel_res_obj.create(
+            reservations |= reservations.create(
                 {
                     "partner_id": res.partner_id.id,
-                    "partner_invoice_id": res.partner_invoice_id.id,
-                    "partner_order_id": res.partner_order_id.id,
-                    "partner_shipping_id": res.partner_shipping_id.id,
+                    "partner_invoice_id": (res.partner_invoice_id or res.partner_id).id,
+                    "partner_order_id": (res.partner_order_id or res.partner_id).id,
+                    "partner_shipping_id": (
+                        res.partner_shipping_id or res.partner_id
+                    ).id,
                     "checkin": res.check_in,
                     "checkout": res.check_out,
                     "company_id": res.company_id.id,
-                    "pricelist_id": res.pricelist_id.id,
+                    "pricelist_id": res._get_pricelist().id,
                     "adults": res.adults,
                     "reservation_line": [
-                        (
-                            0,
-                            0,
+                        Command.create(
                             {
-                                "reserve": [(6, 0, res.room_id.ids)],
+                                "categ_id": res.room_id.room_categ_id.id,
+                                "reserve": [Command.set(res.room_id.ids)],
                                 "name": res.room_id.name or " ",
-                            },
+                            }
                         )
                     ],
                 }
             )
-        return rec
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": "hotel.reservation",
+            "res_id": reservations[:1].id,
+            "views": [
+                (
+                    self.env.ref("hotel_reservation.view_hotel_reservation_form").id,
+                    "form",
+                )
+            ],
+            "target": "current",
+        }

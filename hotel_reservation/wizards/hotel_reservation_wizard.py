@@ -12,45 +12,28 @@ class HotelReservationWizard(models.TransientModel):
     date_start = fields.Datetime("Start Date", required=True)
     date_end = fields.Datetime("End Date", required=True)
 
-    def report_reservation_detail(self):
+    def _print(self, report_xmlid):
+        self.ensure_one()
+        # plain values: the data goes through the client and the report URL
         data = {
-            "ids": self.ids,
-            "model": "hotel.reservation",
-            "form": self.read(["date_start", "date_end"])[0],
+            "form": {
+                "date_start": fields.Datetime.to_string(self.date_start),
+                "date_end": fields.Datetime.to_string(self.date_end),
+            },
         }
-        return self.env.ref("hotel_reservation.hotel_roomres_details").report_action(
-            self, data=data
-        )
+        return self.env.ref(report_xmlid).report_action(self, data=data)
+
+    def report_reservation_detail(self):
+        return self._print("hotel_reservation.hotel_roomres_details")
 
     def report_checkin_detail(self):
-        data = {
-            "ids": self.ids,
-            "model": "hotel.reservation",
-            "form": self.read(["date_start", "date_end"])[0],
-        }
-        return self.env.ref("hotel_reservation.hotel_checkin_details").report_action(
-            self, data=data
-        )
+        return self._print("hotel_reservation.hotel_checkin_details")
 
     def report_checkout_detail(self):
-        data = {
-            "ids": self.ids,
-            "model": "hotel.reservation",
-            "form": self.read(["date_start", "date_end"])[0],
-        }
-        return self.env.ref("hotel_reservation.hotel_checkout_details").report_action(
-            self, data=data
-        )
+        return self._print("hotel_reservation.hotel_checkout_details")
 
     def report_maxroom_detail(self):
-        data = {
-            "ids": self.ids,
-            "model": "hotel.reservation",
-            "form": self.read(["date_start", "date_end"])[0],
-        }
-        return self.env.ref("hotel_reservation.hotel_maxroom_details").report_action(
-            self, data=data
-        )
+        return self._print("hotel_reservation.hotel_maxroom_details")
 
     @api.constrains("date_start", "date_end")
     def check_date(self):
@@ -59,28 +42,3 @@ class HotelReservationWizard(models.TransientModel):
                 raise ValidationError(
                     self.env._("End date must be Greater than the Start date")
                 )
-
-
-class MakeFolioWizard(models.TransientModel):
-    _name = "wizard.make.folio"
-    _description = "Allow to generate the folio"
-
-    grouped = fields.Boolean("Group the Folios")
-
-    def make_folios(self):
-        reservation_obj = self.env["hotel.reservation"]
-        newinv = [
-            order.id
-            for order in reservation_obj.browse(
-                self.env.context.get("active_ids", [])
-            ).mapped("folio_id")
-        ]
-        return {
-            "domain": "[('id','in', [" + ",".join(map(str, newinv)) + "])]",
-            "name": "Folios",
-            "view_type": "form",
-            "view_mode": "tree,form",
-            "res_model": "hotel.folio",
-            "view_id": False,
-            "type": "ir.actions.act_window",
-        }
