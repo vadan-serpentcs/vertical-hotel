@@ -14,10 +14,14 @@ class HotelHousekeepingWizard(models.TransientModel):
     room_id = fields.Many2one("hotel.room", "Room No", required=True)
 
     def print_report(self):
+        self.ensure_one()
+        # plain values: the data goes through the client and the report URL
         data = {
-            "ids": self.ids,
-            "model": "hotel.housekeeping",
-            "form": self.read(["date_start", "date_end", "room_id"])[0],
+            "form": {
+                "date_start": fields.Datetime.to_string(self.date_start),
+                "date_end": fields.Datetime.to_string(self.date_end),
+                "room_id": self.room_id.id,
+            },
         }
         return self.env.ref(
             "hotel_housekeeping.report_hotel_housekeeping"

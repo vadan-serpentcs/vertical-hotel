@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
+from odoo.exceptions import ValidationError
 from odoo.fields import Domain
 
 
@@ -11,7 +12,9 @@ class HotelHousekeepingActivityType(models.Model):
     _rec_name = "name"
 
     name = fields.Char(required=True)
-    parent_id = fields.Many2one("hotel.housekeeping.activity.type", "Parent Category")
+    parent_id = fields.Many2one(
+        "hotel.housekeeping.activity.type", "Parent Category", index=True
+    )
     # The display name walks up the whole parent chain, so it depends on itself
     display_name = fields.Char(recursive=True)
 
@@ -20,7 +23,9 @@ class HotelHousekeepingActivityType(models.Model):
         def get_names(cat):
             """Return the list [cat.name, cat.parent_id.name, ...]"""
             res = []
-            while cat:
+            seen = set()
+            while cat and cat.id not in seen:
+                seen.add(cat.id)
                 if cat.name:
                     res.append(cat.name)
                 cat = cat.parent_id
@@ -28,6 +33,13 @@ class HotelHousekeepingActivityType(models.Model):
 
         for cat in self:
             cat.display_name = " / ".join(reversed(get_names(cat))) or ""
+
+    @api.constrains("parent_id")
+    def _check_parent_id(self):
+        if self._has_cycle():
+            raise ValidationError(
+                self.env._("You cannot create recursive activity types.")
+            )
 
     @api.model
     def _search_display_name(self, operator, value):

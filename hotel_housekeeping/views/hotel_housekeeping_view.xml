@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
     <!-- ======= Housekeeping ======= -->
     <!-- Form view of hotel housekeeping -->
@@ -11,71 +11,47 @@
                     <button
                         string="Clean"
                         name="room_clean"
-                        aria-label="Clean"
-                        title="Clean"
-                        invisible="state not in ['inspect','dirty']"
+                        invisible="state not in ['inspect', 'dirty']"
                         type="object"
-                        class="btn btn-primary"
-                    >
-                        <i class="fa fa-paint-brush" />
-                        Clean
-                    </button>
+                        class="btn-primary"
+                    />
                     <button
                         string="Dirty"
                         name="action_set_to_dirty"
-                        aria-label="Dirty"
-                        title="Dirty"
-                        invisible="state not in ['inspect','dirty']"
+                        invisible="state not in ['inspect', 'clean']"
                         type="object"
-                        class="btn btn-primary"
-                    >
-                        <i class="fa fa-pencil-square-o" />
-                        Dirty
-                    </button>
+                    />
                     <button
                         string="Done"
                         name="room_done"
-                        aria-label="Done"
-                        title="Done"
                         invisible="state != 'clean'"
                         type="object"
-                        class="btn btn-primary"
-                    >
-                        <i class="fa fa-check" />
-                        Done
-                    </button>
-                    <button
-                        string="Cancel"
-                        name="room_cancel"
-                        aria-label="Cancel"
-                        title="Cancel"
-                        type="object"
-                        class="btn btn-primary"
-                    >
-                        <i class="fa fa-times-circle" />
-                        <!-- invisible="state not in ['clean','dirty,'inspect']" -->
-                        Cancel
-                    </button>
+                        class="btn-primary"
+                    />
                     <button
                         string="Inspect"
                         name="room_inspect"
-                        aria-label="Inspect"
-                        title="Inspect"
                         invisible="state != 'cancel'"
                         type="object"
-                        class="btn btn-primary"
-                    >
-                        <i class="fa fa-search" />
-                        Inspect
-                    </button>
-                    <field name="state" widget="statusbar" readonly="state == 'done'" />
+                    />
+                    <button
+                        string="Cancel"
+                        name="room_cancel"
+                        invisible="state in ['done', 'cancel']"
+                        type="object"
+                    />
+                    <field name="state" widget="statusbar" />
                 </header>
                 <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="room_id" readonly="state == 'done'" />
+                        </h1>
+                    </div>
                     <group>
                         <group>
                             <field name="current_date" readonly="state == 'done'" />
                             <field name="clean_type" readonly="state == 'done'" />
-                            <field name="room_id" readonly="state == 'done'" />
                         </group>
                         <group>
                             <field name="inspector_id" readonly="state == 'done'" />
@@ -86,54 +62,50 @@
                             <field
                                 name="quality"
                                 readonly="state == 'done'"
-                                invisible="state not in ['clean','done']"
+                                invisible="state not in ['clean', 'done']"
                             />
                         </group>
                     </group>
-                    <newline />
-                    <newline />
-                    <separator string="Activity Lines" colspan="4" />
-                    <field
-                        name="activity_line_ids"
-                        readonly="state == 'done'"
-                        context="{'room_id':room_id, 'today_date':current_date}"
-                        colspan="4"
-                        nolabel="1"
-                    >
-                        <form string="Activity Lines">
-                            <group colspan="4" col="4">
-                                <field name="today_date" />
-                                <field name="activity_id" />
-                                <field name="housekeeper_id" />
-                                <field name="clean_start_time" />
-                                <field name="clean_end_time" />
-                            </group>
-                            <div class="oe_title">
-                                <div class="oe_edit_only">
-                                    <field name="is_dirty" />
-                                    <label for="is_dirty" string="Is Dirty?" />
-                                    <field name="is_clean" />
-                                    <label for="is_clean" string="Is Clean?" />
-                                </div>
-                            </div>
-                        </form>
-                        <list editable="bottom">
-                            <field name="activity_id" />
-                            <field name="housekeeper_id" />
-                            <field name="today_date" />
-                            <field name="clean_start_time" />
-                            <field name="clean_end_time" />
-                            <field name="is_dirty" readonly="1" />
-                            <field name="is_clean" readonly="1" />
-                        </list>
-                    </field>
-                    <newline />
+                    <notebook>
+                        <page name="activities" string="Activity Lines">
+                            <field
+                                name="activity_line_ids"
+                                readonly="state == 'done'"
+                                context="{'default_today_date': current_date}"
+                            >
+                                <list editable="bottom">
+                                    <field name="activity_id" />
+                                    <field name="housekeeper_id" />
+                                    <field name="today_date" />
+                                    <field name="clean_start_time" />
+                                    <field name="clean_end_time" />
+                                    <field name="is_dirty" readonly="1" />
+                                    <field name="is_clean" readonly="1" />
+                                </list>
+                                <form string="Activity Lines">
+                                    <group>
+                                        <group>
+                                            <field name="activity_id" />
+                                            <field name="housekeeper_id" />
+                                            <field name="today_date" />
+                                        </group>
+                                        <group>
+                                            <field name="clean_start_time" />
+                                            <field name="clean_end_time" />
+                                            <field name="is_dirty" />
+                                            <field name="is_clean" />
+                                        </group>
+                                    </group>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>
     </record>
 
-    <!-- Tree view of hotel housekeeping -->
+    <!-- List view of hotel housekeeping -->
     <record id="view_hotel_housekeeping_tree" model="ir.ui.view">
         <field name="name">hotel.housekeeping.list</field>
         <field name="model">hotel.housekeeping</field>
@@ -142,10 +114,95 @@
                 <field name="current_date" />
                 <field name="clean_type" />
                 <field name="room_id" />
-                <field name="inspector_id" />
-                <field name="inspect_date_time" />
-                <field name="state" />
+                <field name="inspector_id" widget="many2one_avatar_user" />
+                <field name="inspect_date_time" optional="show" />
+                <field name="quality" optional="hide" />
+                <field
+                    name="state"
+                    widget="badge"
+                    decoration-info="state == 'inspect'"
+                    decoration-danger="state == 'dirty'"
+                    decoration-warning="state == 'clean'"
+                    decoration-success="state == 'done'"
+                />
             </list>
+        </field>
+    </record>
+
+    <!-- Kanban view of hotel housekeeping -->
+    <record id="view_hotel_housekeeping_kanban" model="ir.ui.view">
+        <field name="name">hotel.housekeeping.kanban</field>
+        <field name="model">hotel.housekeeping</field>
+        <field name="arch" type="xml">
+            <kanban
+                default_group_by="state"
+                records_draggable="0"
+                quick_create="0"
+                group_create="0"
+                group_delete="0"
+                group_edit="0"
+            >
+                <field name="state" />
+                <field name="activity_line_ids" />
+                <templates>
+                    <t t-name="card">
+                        <div class="d-flex align-items-baseline gap-2">
+                            <field name="room_id" class="fw-bold fs-5" />
+                            <field name="clean_type" class="ms-auto text-muted" />
+                        </div>
+                        <field name="current_date" class="text-muted" />
+                        <div class="d-flex flex-wrap gap-3 small mt-1">
+                            <span t-if="record.activity_line_ids.raw_value.length">
+                                Activities:
+                                <t t-out="record.activity_line_ids.raw_value.length" />
+                            </span>
+                            <field
+                                name="quality"
+                                invisible="not quality"
+                                widget="badge"
+                            />
+                        </div>
+                        <footer class="pt-1">
+                            <field name="inspector_id" widget="many2one_avatar_user" />
+                            <div class="ms-auto">
+                                <button
+                                    t-if="['inspect', 'dirty'].includes(record.state.raw_value)"
+                                    class="btn btn-sm btn-primary"
+                                    name="room_clean"
+                                    type="object"
+                                    string="Clean"
+                                />
+                                <button
+                                    t-if="record.state.raw_value === 'clean'"
+                                    class="btn btn-sm btn-secondary"
+                                    name="action_set_to_dirty"
+                                    type="object"
+                                    string="Dirty"
+                                />
+                            </div>
+                        </footer>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- Calendar view of hotel housekeeping -->
+    <record id="view_hotel_housekeeping_calendar" model="ir.ui.view">
+        <field name="name">hotel.housekeeping.calendar</field>
+        <field name="model">hotel.housekeeping</field>
+        <field name="arch" type="xml">
+            <calendar
+                date_start="current_date"
+                color="inspector_id"
+                mode="week"
+                event_limit="5"
+                quick_create="0"
+            >
+                <field name="inspector_id" filters="1" />
+                <field name="clean_type" />
+                <field name="state" />
+            </calendar>
         </field>
     </record>
 
@@ -157,9 +214,29 @@
             <search string="Housekeeping">
                 <field name="room_id" />
                 <field name="inspector_id" />
+                <field
+                    name="activity_line_ids"
+                    string="Housekeeper"
+                    filter_domain="[('activity_line_ids.housekeeper_id', 'ilike', self)]"
+                />
                 <field name="quality" />
                 <field name="state" />
+                <filter
+                    string="My Jobs"
+                    name="my_jobs"
+                    domain="['|', ('inspector_id', '=', uid), ('activity_line_ids.housekeeper_id', '=', uid)]"
+                />
+                <filter
+                    string="Today"
+                    name="today"
+                    domain="[('current_date', '=', context_today().strftime('%Y-%m-%d'))]"
+                />
                 <separator />
+                <filter
+                    string="Open"
+                    name="open"
+                    domain="[('state', 'in', ['inspect', 'dirty', 'clean'])]"
+                />
                 <filter string="Dirty" name="dirty" domain="[('state','=','dirty')]" />
                 <filter string="Clean" name="clean" domain="[('state','=','clean')]" />
                 <filter
@@ -179,6 +256,11 @@
                         name="groupby_inspector"
                         context="{'group_by': 'inspector_id'}"
                     />
+                    <filter
+                        string="Room"
+                        name="groupby_room"
+                        context="{'group_by': 'room_id'}"
+                    />
                 </group>
             </search>
         </field>
@@ -188,19 +270,27 @@
     <record id="open_hotel_housekeeping_form_tree" model="ir.actions.act_window">
         <field name="name">Housekeeping Services</field>
         <field name="res_model">hotel.housekeeping</field>
-        <field name="view_mode">list,form</field>
-        <field name="view_id" ref="view_hotel_housekeeping_tree" />
+        <field name="view_mode">kanban,list,form,calendar</field>
         <field name="search_view_id" ref="view_hotel_housekeeping_search" />
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a housekeeping job
+            </p>
+            <p>
+                Plan the cleaning of a room, log the activities of the
+                housekeepers and let the inspector close the job.
+            </p>
+        </field>
     </record>
     <menuitem
         id="menu_housekeeping"
         name="Housekeeping Services"
-        parent="hotel.hotel_management_menu"
+        parent="vertical_hotel.hotel_management_menu"
         sequence="2"
     />
     <menuitem
-        name="Housekeeping Services"
         id="menu_open_hotel_housekeeping_form_tree"
+        name="Housekeeping Services"
         action="open_hotel_housekeeping_form_tree"
         parent="menu_housekeeping"
         sequence="4"
@@ -223,13 +313,13 @@
         </field>
     </record>
 
-    <!-- Tree view of hotel housekeeping activity type -->
+    <!-- List view of hotel housekeeping activity type -->
     <record id="view_hotel_housekeeping_activity_type_tree" model="ir.ui.view">
         <field name="name">hotel_housekeeping_activity_type_list</field>
         <field name="model">hotel.housekeeping.activity.type</field>
         <field name="arch" type="xml">
             <list>
-                <field name="name" />
+                <field name="display_name" string="Activity Type" />
             </list>
         </field>
     </record>
@@ -246,7 +336,7 @@
     <menuitem
         id="menu_hotel_activity"
         name="Activity"
-        parent="hotel.hotel_configuration_menu"
+        parent="vertical_hotel.hotel_configuration_menu"
         sequence="2"
     />
     <menuitem
@@ -293,7 +383,7 @@
         </field>
     </record>
 
-    <!-- Tree view of hotel activity -->
+    <!-- List view of hotel activity -->
     <record id="view_h_activity_tree" model="ir.ui.view">
         <field name="name">hotel.activity.list</field>
         <field name="model">hotel.activity</field>
@@ -310,7 +400,6 @@
         <field name="name">Activities</field>
         <field name="res_model">hotel.activity</field>
         <field name="view_mode">list,form</field>
-        <field name="context">{'default_isactivitytype':1}</field>
     </record>
 
     <menuitem

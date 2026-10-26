@@ -1,11 +1,6 @@
 # Copyright (C) 2024-TODAY Serpent Consulting Services Pvt. Ltd. (<http://www.serpentcs.com>).
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-import time
-from datetime import datetime
-
-from dateutil.relativedelta import relativedelta
-
 from odoo import api, fields, models
 
 
@@ -14,51 +9,64 @@ class ActivityReport(models.AbstractModel):
     _description = "Hotel Housekeeping Report"
 
     def get_room_activity_detail(self, date_start, date_end, room_id):
-        activity_detail = []
-        house_keep_act_obj = self.env["hotel.housekeeping.activities"]
-
-        activity_line_ids = house_keep_act_obj.search(
+        """Activity lines of a room cleaned between the two datetimes."""
+        return self.env["hotel.housekeeping.activities"].search(
             [
                 ("clean_start_time", ">=", date_start),
                 ("clean_end_time", "<=", date_end),
                 ("housekeeping_id.room_id", "=", room_id),
-            ]
+            ],
+            order="clean_start_time, id",
         )
 
-        for activity in activity_line_ids:
-            activity_detail.append(
+    @api.model
+    def _get_sections(self, docids, data):
+        """One section per room: the room, the period and its activity lines.
+
+        From the wizard (``data["form"]``): one room over a period.
+        From the Print menu of housekeeping jobs: the lines of those jobs,
+        one section per room, without a period."""
+        form = (data or {}).get("form")
+        if form:
+            room = self.env["hotel.room"].browse(form["room_id"])
+            date_start = fields.Datetime.to_datetime(form["date_start"])
+            date_end = fields.Datetime.to_datetime(form["date_end"])
+            lines = self.get_room_activity_detail(date_start, date_end, room.id)
+            return [
                 {
-                    "current_date": activity.today_date,
-                    "activity": (activity.activity_id.name or ""),
-                    "login": (activity.housekeeper_id.name or ""),
-                    "clean_start_time": activity.clean_start_time,
-                    "clean_end_time": activity.clean_end_time,
-                    "duration": activity.clean_end_time - activity.clean_start_time,
+                    "room": room,
+                    "date_start": date_start,
+                    "date_end": date_end,
+                    "lines": lines,
                 }
-            )
-        return activity_detail
+            ]
+        jobs = self.env["hotel.housekeeping"].browse(docids)
+        return [
+            {
+                "room": room,
+                "date_start": False,
+                "date_end": False,
+                "lines": jobs.filtered(
+                    lambda j, r=room: j.room_id == r
+                ).activity_line_ids.sorted(
+                    lambda line: (line.clean_start_time, line.id)
+                ),
+            }
+            for room in jobs.room_id
+        ]
 
     @api.model
     def _get_report_values(self, docids, data=None):
-        active_model = self.env.context.get("active_model")
-        if data is None:
-            data = {}
-        if not docids:
-            docids = data["form"].get("docids")
-        activity_doc = self.env["hotel.housekeeping.activities"].browse(docids)
-        date_start = data["form"].get("date_start", fields.Date.today())
-        date_end = data["form"].get(
-            "date_end",
-            str(datetime.now() + relativedelta(months=+1, day=1, days=-1))[:10],
-        )
-        room_id = data["form"].get("room_id")[0]
+        sections = self._get_sections(docids, data)
         return {
             "doc_ids": docids,
-            "doc_model": active_model,
-            "data": data["form"],
-            "docs": activity_doc,
-            "time": time,
-            "activity_detail": self.get_room_activity_detail(
-                date_start, date_end, room_id
+            "doc_model": "hotel.housekeeping",
+            "docs": self.env["hotel.housekeeping"].browse(
+                docids if not (data or {}).get("form") else []
+            ),
+            "data": data,
+            "sections": sections,
+            "duration_hours": lambda line: (
+                (line.clean_end_time - line.clean_start_time).total_seconds() / 3600
             ),
         }
