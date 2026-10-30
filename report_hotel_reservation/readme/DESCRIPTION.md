@@ -1,4 +1,7 @@
-This Module provides state-wise view for hotel reservation for better
-business intelligence.
+This module adds a reservation analysis to the hotel: one line per reserved
+room, with the guest, the room and its type, the check-in and check-out
+dates and the state of the reservation.
 
-![image](https://raw.githubusercontent.com/OCA/vertical-hotel/10.0/report_hotel_reservation/static/description/sbres.png)
+Measures: room nights, reservations, adults, children and guests, by
+check-in month, room type, room, guest or state, in pivot, graph and list
+views. Each user only sees the reservations of their companies.

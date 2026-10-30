@@ -21,28 +21,59 @@ Hotel Reservation Management - Reporting
     :target: http://www.gnu.org/licenses/agpl-3.0-standalone.html
     :alt: License: AGPL-3
 .. |badge3| image:: https://img.shields.io/badge/github-OCA%2Fvertical--hotel-lightgray.png?logo=github
-    :target: https://github.com/OCA/vertical-hotel/tree/19.0/report_hotel_reservation
+    :target: https://github.com/OCA/vertical-hotel/tree/20.0/report_hotel_reservation
     :alt: OCA/vertical-hotel
 .. |badge4| image:: https://img.shields.io/badge/weblate-Translate%20me-F47D42.png
-    :target: https://translation.odoo-community.org/projects/vertical-hotel-19-0/vertical-hotel-19-0-report_hotel_reservation
+    :target: https://translation.odoo-community.org/projects/vertical-hotel-20-0/vertical-hotel-20-0-report_hotel_reservation
     :alt: Translate me on Weblate
 .. |badge5| image:: https://img.shields.io/badge/runboat-Try%20me-875A7B.png
-    :target: https://runboat.odoo-community.org/builds?repo=OCA/vertical-hotel&target_branch=19.0
+    :target: https://runboat.odoo-community.org/builds?repo=OCA/vertical-hotel&target_branch=20.0
     :alt: Try me on Runboat
 
 |badge1| |badge2| |badge3| |badge4| |badge5|
 
-This Module provides state-wise view for hotel reservation for better
-business intelligence.
+This module adds a reservation analysis to the hotel: one line per
+reserved room, with the guest, the room and its type, the check-in and
+check-out dates and the state of the reservation.
 
-|image|
-
-.. |image| image:: https://raw.githubusercontent.com/OCA/vertical-hotel/10.0/report_hotel_reservation/static/description/sbres.png
+Measures: room nights, reservations, adults, children and guests, by
+check-in month, room type, room, guest or state, in pivot, graph and
+list views. Each user only sees the reservations of their companies.
 
 **Table of contents**
 
 .. contents::
    :local:
+
+Usage
+=====
+
+Open *Hotel > Reports > Reservation Analysis*. By default it shows the
+reservations that are not cancelled, with room nights and reservations
+by check-in month and room type. Change the rows, columns and measures
+of the pivot, or use the graph, to compare months, room types or guests.
+
+A reservation with several rooms has one line per room: room nights are
+counted per room, while reservations, adults, children and guests are
+counted once per reservation.
+
+Changelog
+=========
+
+20.0.1.0.0
+----------
+
+- Migration to Odoo 20.0: access rights in ``security/ir.access.csv``.
+- "States By Reservation" becomes *Reservation Analysis*. It grouped by
+  reservation number, so every line was one reservation with a count of
+  1. Now there is one line per reserved room with the guest, room, room
+  type, check-in / check-out and room nights; measures room nights,
+  reservations, adults, children and guests; pivot by check-in month and
+  room type, graph by month and state.
+- Users only see the reservations of their companies (the report had no
+  company).
+- Cancel / not cancelled filters and group-bys; cancelled reservations
+  are hidden by default.
 
 Bug Tracker
 ===========
@@ -50,7 +81,7 @@ Bug Tracker
 Bugs are tracked on `GitHub Issues <https://github.com/OCA/vertical-hotel/issues>`_.
 In case of trouble, please check there if your issue has already been reported.
 If you spotted it first, help us to smash it by providing a detailed and welcomed
-`feedback <https://github.com/OCA/vertical-hotel/issues/new?body=module:%20report_hotel_reservation%0Aversion:%2019.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
+`feedback <https://github.com/OCA/vertical-hotel/issues/new?body=module:%20report_hotel_reservation%0Aversion:%2020.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
 
 Do not contact contributors directly about support or help with technical issues.
 
@@ -84,6 +115,6 @@ OCA, or the Odoo Community Association, is a nonprofit organization whose
 mission is to support the collaborative development of Odoo features and
 promote its widespread use.
 
-This module is part of the `OCA/vertical-hotel <https://github.com/OCA/vertical-hotel/tree/19.0/report_hotel_reservation>`_ project on GitHub.
+This module is part of the `OCA/vertical-hotel <https://github.com/OCA/vertical-hotel/tree/20.0/report_hotel_reservation>`_ project on GitHub.
 
 You are welcome to contribute. To learn how please visit https://odoo-community.org/page/Contribute.

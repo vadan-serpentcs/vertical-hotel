@@ -3,15 +3,17 @@
 
 {
     "name": "Hotel Reservation Management - Reporting",
-    "version": "19.0.1.0.0",
+    "version": "20.0.1.0.0",
     "author": "Odoo Community Association (OCA), Serpent Consulting\
                 Services Pvt. Ltd., Odoo S.A.",
     "website": "https://github.com/OCA/vertical-hotel",
+    "summary": "Reservation analysis: room nights and guests by month, "
+    "room type and state",
     "depends": ["hotel_reservation"],
     "license": "AGPL-3",
-    "category": "Generic Modules/Hotel Reservation",
+    "category": "Services/Hotel",
     "data": [
-        "security/ir.model.access.csv",
+        "security/ir.access.csv",
         "views/report_hotel_reservation_view.xml",
     ],
     "installable": True,
