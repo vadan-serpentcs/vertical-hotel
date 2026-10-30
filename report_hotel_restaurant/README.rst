@@ -21,24 +21,61 @@ Restaurant Management - Reporting
     :target: http://www.gnu.org/licenses/agpl-3.0-standalone.html
     :alt: License: AGPL-3
 .. |badge3| image:: https://img.shields.io/badge/github-OCA%2Fvertical--hotel-lightgray.png?logo=github
-    :target: https://github.com/OCA/vertical-hotel/tree/19.0/report_hotel_restaurant
+    :target: https://github.com/OCA/vertical-hotel/tree/20.0/report_hotel_restaurant
     :alt: OCA/vertical-hotel
 .. |badge4| image:: https://img.shields.io/badge/weblate-Translate%20me-F47D42.png
-    :target: https://translation.odoo-community.org/projects/vertical-hotel-19-0/vertical-hotel-19-0-report_hotel_restaurant
+    :target: https://translation.odoo-community.org/projects/vertical-hotel-20-0/vertical-hotel-20-0-report_hotel_restaurant
     :alt: Translate me on Weblate
 .. |badge5| image:: https://img.shields.io/badge/runboat-Try%20me-875A7B.png
-    :target: https://runboat.odoo-community.org/builds?repo=OCA/vertical-hotel&target_branch=19.0
+    :target: https://runboat.odoo-community.org/builds?repo=OCA/vertical-hotel&target_branch=20.0
     :alt: Try me on Runboat
 
 |badge1| |badge2| |badge3| |badge4| |badge5|
 
-This Module provides state-wise view for hotel restaurant for better
-business intelligence.
+This module adds a restaurant sales analysis to the hotel: one line per
+food item ordered, for the table orders and for the orders of table
+bookings, with the date, the order, the customer, the waiter, the
+guest's folio and the state of the order.
+
+Measures: quantity, amount and number of orders, by month, food item
+category, food item, customer, waiter or order kind, in pivot, graph and
+list views.
 
 **Table of contents**
 
 .. contents::
    :local:
+
+Usage
+=====
+
+Open *Hotel > Reports > Restaurant Sales Analysis*. By default it shows
+the orders that are not cancelled, with quantities and amounts by month
+and food item category. Change the rows, columns and measures of the
+pivot, or use the graph, to compare months, food items, customers or
+waiters; the *Hotel Guests* filter keeps the orders of guests staying at
+the hotel.
+
+An order with several food items has one line per item: quantities and
+amounts are per item, the number of orders is counted once per order.
+Kitchen order tickets are copies of the order lines and are not counted.
+
+Changelog
+=========
+
+20.0.1.0.0
+----------
+
+- Migration to Odoo 20.0: access rights in ``security/ir.access.csv``.
+- "Status By Restaurant" becomes *Restaurant Sales Analysis*. It grouped
+  table bookings by their number, so every line was one booking with a
+  count of 1, under a measure labelled "Reservation Order No". Now there
+  is one line per food item ordered, for table orders and booking
+  orders, with date, order, customer, waiter, folio, food item and
+  category; measures quantity, amount and orders (counted once per
+  order); pivot by month and food item category, graph by month.
+- Filters by order kind, hotel guests and state (cancelled orders hidden
+  by default), and group-bys.
 
 Bug Tracker
 ===========
@@ -46,7 +83,7 @@ Bug Tracker
 Bugs are tracked on `GitHub Issues <https://github.com/OCA/vertical-hotel/issues>`_.
 In case of trouble, please check there if your issue has already been reported.
 If you spotted it first, help us to smash it by providing a detailed and welcomed
-`feedback <https://github.com/OCA/vertical-hotel/issues/new?body=module:%20report_hotel_restaurant%0Aversion:%2019.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
+`feedback <https://github.com/OCA/vertical-hotel/issues/new?body=module:%20report_hotel_restaurant%0Aversion:%2020.0%0A%0A**Steps%20to%20reproduce**%0A-%20...%0A%0A**Current%20behavior**%0A%0A**Expected%20behavior**>`_.
 
 Do not contact contributors directly about support or help with technical issues.
 
@@ -80,6 +117,6 @@ OCA, or the Odoo Community Association, is a nonprofit organization whose
 mission is to support the collaborative development of Odoo features and
 promote its widespread use.
 
-This module is part of the `OCA/vertical-hotel <https://github.com/OCA/vertical-hotel/tree/19.0/report_hotel_restaurant>`_ project on GitHub.
+This module is part of the `OCA/vertical-hotel <https://github.com/OCA/vertical-hotel/tree/20.0/report_hotel_restaurant>`_ project on GitHub.
 
 You are welcome to contribute. To learn how please visit https://odoo-community.org/page/Contribute.

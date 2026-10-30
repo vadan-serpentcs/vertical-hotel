@@ -3,18 +3,20 @@
 
 {
     "name": "Restaurant Management - Reporting",
-    "version": "19.0.1.0.0",
+    "version": "20.0.1.0.0",
     "author": "Odoo Community Association (OCA), Serpent Consulting\
                 Services Pvt. Ltd., Odoo S.A.",
     "maintainer": "Serpent Consulting Services Pvt. Ltd.,\
                     Rajan-SerpentCS,\
                     vimalpatelserpentcs",
     "website": "https://github.com/OCA/vertical-hotel",
+    "summary": "Restaurant sales analysis: food items, quantities and amounts "
+    "by month, category, customer and waiter",
     "depends": ["hotel_restaurant", "report_hotel_reservation"],
-    "category": "Generic Modules/Hotel Restaurant",
+    "category": "Services/Hotel",
     "license": "AGPL-3",
     "data": [
-        "security/ir.model.access.csv",
+        "security/ir.access.csv",
         "views/report_hotel_restaurant_view.xml",
     ],
     "installable": True,
