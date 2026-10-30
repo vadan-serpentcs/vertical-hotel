@@ -248,10 +248,15 @@ class TestReservation(common.TransactionCase):
     # Constraints, onchanges, misc
 
     def test_check_reservation_rooms(self):
+        # the main guest + 2 accompanying adults do not fit in a 2-bed room
+        guests = [
+            Command.create({"name": name, "guest_type": "adult"})
+            for name in ("Guest A", "Guest B")
+        ]
         with self.assertRaises(ValidationError):
-            self._reservation(adults=3)
-        with self.assertRaises(ValidationError):
-            self._reservation(adults=0)
+            self._reservation(guest_ids=guests)
+        # the main guest always counts as an adult
+        self.assertEqual(self._reservation().adults, 1)
 
     def test_check_in_out_dates(self):
         with self.assertRaises(ValidationError):
@@ -261,8 +266,8 @@ class TestReservation(common.TransactionCase):
 
     def test_copy(self):
         reservation = self._reservation()
-        copy = reservation.copy({"adults": 2})
-        self.assertEqual(copy.adults, 2)
+        copy = reservation.copy({"date_order": reservation.date_order})
+        self.assertEqual(copy.adults, 1)
         self.assertNotEqual(copy.reservation_no, reservation.reservation_no)
 
     def test_check_overlap(self):
