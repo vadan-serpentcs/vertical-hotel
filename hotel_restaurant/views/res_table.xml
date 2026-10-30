@@ -1,71 +1,56 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE xml>
 <odoo>
-    <!--Template for Hotel Restaurant -->
+    <!-- Title and period of the restaurant reports: set title before calling -->
+    <template id="report_restaurant_period_header">
+        <h2 class="text-center mt-4" t-out="title" />
+        <div class="text-center mb-4">
+            <strong>From:</strong>
+            <span t-out="data['date_start']" t-options="{'widget': 'datetime'}" />
+            <strong>To:</strong>
+            <span t-out="data['date_end']" t-options="{'widget': 'datetime'}" />
+        </div>
+    </template>
+
+    <!--Template for table reservation list -->
     <template id="report_res_table">
         <t t-call="web.html_container">
             <t t-call="web.external_layout">
                 <div class="page">
-                    <style>
-                        .table-thick-border {
-                            border: 1px solid black;
-                        }
-                        .table-thick-border th,
-                        .table-thick-border td {
-                            border: 1px solid black;
-                            padding: 8px;
-                        }
-                    </style>
-                    <br />
-                    <br />
-                    <div class="row">
-                        <h2>
-                            <span>
-                                <center>Table Reservation List</center>
-                            </span>
-                        </h2>
-                    </div>
-                    <div class="row mt32 mb32">
-                        <center>
-                            <strong>From:</strong>
-                            <span t-esc="data['date_start']" />
-                            <strong>To:</strong>
-                            <span t-esc="data['date_end']" />
-                        </center>
-                    </div>
-                    <table
-                        class="table table-bordered table-thick-border"
-                        style="border-collapse: collapse; width: 100%;"
-                    >
+                    <t t-set="title">Table Reservation List</t>
+                    <t t-call="hotel_restaurant.report_restaurant_period_header" />
+                    <table class="table table-sm table-bordered">
                         <thead>
                             <tr>
-                                <th style="text-indent: 5px;">
-                                    <strong>Reservation No</strong>
-                                </th>
-                                <th>
-                                    <strong>Customer Name</strong>
-                                </th>
-                                <th>
-                                    <strong>Start Date</strong>
-                                </th>
-                                <th>
-                                    <strong>End Date</strong>
-                                </th>
+                                <th>Reservation No</th>
+                                <th>Customer Name</th>
+                                <th>Tables</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr t-foreach="Reservations" t-as="reservations">
-                                <td style="white-space: nowrap; text-indent: 5px;">
-                                    <span t-esc="reservations.get('reservation', '')" />
+                            <tr t-foreach="Reservations" t-as="reservation">
+                                <td>
+                                    <span t-field="reservation.reservation_id" />
                                 </td>
-                                <td style="white-space: nowrap;">
-                                    <span t-esc="reservations.get('name', '')" />
+                                <td>
+                                    <span t-field="reservation.customer_id" />
                                 </td>
-                                <td style="white-space: nowrap;">
-                                    <span t-esc="reservations.get('start_date', '')" />
+                                <td>
+                                    <span
+                                        t-out="', '.join(reservation.table_nos_ids.mapped('name'))"
+                                    />
                                 </td>
-                                <td style="white-space: nowrap;">
-                                    <span t-esc="reservations.get('end_date', '')" />
+                                <td class="text-nowrap">
+                                    <span t-field="reservation.start_date" />
+                                </td>
+                                <td class="text-nowrap">
+                                    <span t-field="reservation.end_date" />
+                                </td>
+                            </tr>
+                            <tr t-if="not Reservations">
+                                <td colspan="5" class="text-center text-muted">
+                                    No reservation in this period.
                                 </td>
                             </tr>
                         </tbody>

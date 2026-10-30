@@ -1,289 +1,135 @@
-<?xml version="1.0" encoding="utf-8" ?>
-<!DOCTYPE xml>
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
-    <!-- Template for Hotel Restaurant -->
+    <!-- Body of the customer bills: set o, date and number before calling -->
+    <template id="report_order_bill_body">
+        <t t-set="currency" t-value="o.env.company.currency_id" />
+        <div class="page">
+            <h2 class="mt-3">Customer Bill</h2>
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Order Number</th>
+                        <th t-if="o.folio_id">Folio Number</th>
+                        <th t-if="o.room_id">Room Number</th>
+                        <th>Waiter Name</th>
+                        <th>Tables</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="text-nowrap">
+                            <span t-out="date" t-options="{'widget': 'datetime'}" />
+                        </td>
+                        <td>
+                            <span t-out="number" />
+                        </td>
+                        <td t-if="o.folio_id">
+                            <span t-field="o.folio_id" />
+                        </td>
+                        <td t-if="o.room_id">
+                            <span t-field="o.room_id" />
+                        </td>
+                        <td>
+                            <span t-field="o.waiter_id" />
+                        </td>
+                        <td>
+                            <span t-out="', '.join(o.table_nos_ids.mapped('name'))" />
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <h3>Order List</h3>
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Food Item</th>
+                        <th class="text-end">Quantity</th>
+                        <th class="text-end">Rate</th>
+                        <th class="text-end">Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr t-foreach="o.order_list_ids" t-as="line">
+                        <td>
+                            <span t-field="line.menucard_id" />
+                        </td>
+                        <td class="text-end">
+                            <span t-field="line.item_qty" />
+                        </td>
+                        <td class="text-end">
+                            <span
+                                t-out="line.item_rate"
+                                t-options="{'widget': 'monetary', 'display_currency': currency}"
+                            />
+                        </td>
+                        <td class="text-end">
+                            <span
+                                t-out="line.price_subtotal"
+                                t-options="{'widget': 'monetary', 'display_currency': currency}"
+                            />
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="row justify-content-end">
+                <div class="col-5">
+                    <table class="table table-sm">
+                        <tr>
+                            <td>
+                                <strong>Subtotal</strong>
+                            </td>
+                            <td class="text-end">
+                                <span
+                                    t-out="o.amount_subtotal"
+                                    t-options="{'widget': 'monetary', 'display_currency': currency}"
+                                />
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Tax (%)</td>
+                            <td class="text-end">
+                                <span t-field="o.tax" />
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <strong>Total</strong>
+                            </td>
+                            <td class="text-end">
+                                <strong
+                                    t-out="o.amount_total"
+                                    t-options="{'widget': 'monetary', 'display_currency': currency}"
+                                />
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!--Bill of a table order -->
     <template id="report_order_bill">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.external_layout">
-                    <div class="page">
-                        <br />
-                        <br />
-                        <div class="row">
-                            <h2>
-                                <span>
-                                    <strong>
-                                        <center>Customer Order Bill</center>
-                                    </strong>
-                                </span>
-                            </h2>
-                        </div>
-                        <br />
-                        <table width="100%" class="table table-condensed">
-                            <tr>
-                                <td width="50%" style="text-align:left;">
-                                    <strong>Customer Name :</strong>
-                                    <span t-field="o.customer_id" />
-                                </td>
-                                <td width="50%" style="text-align:right;">
-                                    <strong>Date :</strong>
-                                    <span t-field="o.o_date" />
-                                </td>
-                            </tr>
-                        </table>
-                        <br />
-                        <table class="table table-condensed">
-                            <thead>
-                                <tr>
-                                    <th>
-                                        <strong>Order Number</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Waiter Name</strong>
-                                    </th>
-                                    <th t-if="o.folio_id">
-                                        <strong>Folio Number</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Room Number</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <td style="white-space: nowrap;">
-                                    <span t-esc="o.order_no" />
-                                </td>
-                                <td style="white-space: nowrap;">
-                                    <span
-                                        t-att-style="style"
-                                        t-esc="o.waiter_id.name"
-                                    />
-                                </td>
-                                <td t-if="o.folio_id" style="white-space: nowrap;">
-                                    <span t-att-style="style" t-esc="o.folio_id.name" />
-                                </td>
-                                <td t-if="o.room_id.id" style="white-space: nowrap;">
-                                    <span t-att-style="style" t-esc="o.room_id.name" />
-                                </td>
-                            </tbody>
-                        </table>
-                        <table class="table table-condensed">
-                            <thead>
-                                <tr>
-                                    <th>
-                                        <strong>Table Information</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.table_nos_ids" t-as="rec2">
-                                    <td>
-                                        <span t-esc="rec2.name" />
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div class="row">
-                            <h2>
-                                <span>Order List</span>
-                            </h2>
-                        </div>
-                        <table class="table table-condensed">
-                            <thead>
-                                <tr>
-                                    <th>
-                                        <strong>Food Item</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Quantity</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Rate</strong>
-                                    </th>
-                                    <th>
-                                        <strong>SubTotal</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.order_list_ids" t-as="rec">
-                                    <td>
-                                        <span t-esc="rec.menucard_id.name" />
-                                    </td>
-                                    <td>
-                                        <span t-esc="rec.item_qty" />
-                                    </td>
-                                    <td>
-                                        <span t-esc="rec.item_rate" />
-                                    </td>
-                                    <td>
-                                        <span t-esc="rec.price_subtotal" />
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td />
-                                    <td />
-                                    <td>
-                                        <strong>Sub Total:</strong>
-                                    </td>
-                                    <td t-esc="o.amount_subtotal" />
-                                </tr>
-                                <tr>
-                                    <td />
-                                    <td />
-                                    <td>
-                                        <strong>Tax:</strong>
-                                    </td>
-                                    <td t-esc="o.tax" />
-                                </tr>
-                                <tr>
-                                    <td />
-                                    <td />
-                                    <td>
-                                        <strong>Total:</strong>
-                                    </td>
-                                    <td t-esc="o.amount_total" />
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <t t-set="date" t-value="o.o_date" />
+                    <t t-set="number" t-value="o.order_no" />
+                    <t t-call="hotel_restaurant.report_order_bill_body" />
                 </t>
             </t>
         </t>
     </template>
 
-    <!-- Template for Hotel Restaurant Reservation -->
+    <!--Bill of a table booking order -->
     <template id="report_res_order_bill">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.external_layout">
-                    <div class="page">
-                        <br />
-                        <br />
-                        <div class="row">
-                            <h2>
-                                <span>
-                                    <strong>
-                                        <center>Customer Order Bill</center>
-                                    </strong>
-                                </span>
-                            </h2>
-                        </div>
-                        <table class="table table-condensed">
-                            <thead>
-                                <tr>
-                                    <th style="text-indent: 5px;">
-                                        <strong>Date</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Order Number</strong>
-                                    </th>
-                                    <th t-if="o.folio_id">
-                                        <strong>Folio Number</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Waiter Name</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <td style="white-space: nowrap;text-indent: 5px;">
-                                    <span t-esc="o.order_date" />
-                                </td>
-                                <td style="white-space: nowrap;">
-                                    <span t-att-style="style" t-esc="o.order_number" />
-                                </td>
-                                <td t-if="o.folio_id" style="white-space: nowrap;">
-                                    <span t-att-style="style" t-esc="o.folio_id.name" />
-                                </td>
-                                <td style="white-space: nowrap;">
-                                    <span
-                                        t-att-style="style"
-                                        t-esc="o.waiter_id.name"
-                                    />
-                                </td>
-                            </tbody>
-                        </table>
-                        <table class="table table-condensed">
-                            <thead>
-                                <tr>
-                                    <th style="text-indent: 5px;">
-                                        <strong>Table Information</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.table_nos_ids" t-as="rec2">
-                                    <td style="text-indent: 5px;">
-                                        <span t-esc="rec2.name" />
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div class="row">
-                            <h2>
-                                <span>Order List</span>
-                            </h2>
-                        </div>
-                        <table class="table table-condensed">
-                            <thead>
-                                <tr>
-                                    <th style="text-indent: 5px;">
-                                        <strong>Food Item</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Quantity</strong>
-                                    </th>
-                                    <th>
-                                        <strong>Rate</strong>
-                                    </th>
-                                    <th>
-                                        <strong>SubTotal</strong>
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.order_list_ids" t-as="rec">
-                                    <td style="text-indent: 5px;">
-                                        <span t-esc="rec.menucard_id.name" />
-                                    </td>
-                                    <td>
-                                        <span t-esc="rec.item_qty" />
-                                    </td>
-                                    <td>
-                                        <span t-esc="rec.item_rate" />
-                                    </td>
-                                    <td>
-                                        <span t-esc="rec.price_subtotal" />
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td />
-                                    <td />
-                                    <td>
-                                        <strong>Sub Total:</strong>
-                                    </td>
-                                    <td t-esc="o.amount_subtotal" />
-                                </tr>
-                                <tr>
-                                    <td />
-                                    <td />
-                                    <td>
-                                        <strong>Tax:</strong>
-                                    </td>
-                                    <td t-esc="o.tax" />
-                                </tr>
-                                <tr>
-                                    <td />
-                                    <td />
-                                    <td>
-                                        <strong>Total:</strong>
-                                    </td>
-                                    <td t-esc="o.amount_total" />
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <t t-set="date" t-value="o.order_date" />
+                    <t t-set="number" t-value="o.order_number" />
+                    <t t-call="hotel_restaurant.report_order_bill_body" />
                 </t>
             </t>
         </t>

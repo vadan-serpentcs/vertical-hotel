@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
-<!DOCTYPE xml>
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo noupdate="1">
     <!-- Table Data -->
     <record id="hotel_restaurant_tables_table0" model="hotel.restaurant.tables">
@@ -43,7 +42,7 @@
         <field name="list_price">50.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/paneer_tikka.png"
         />
     </record>
@@ -53,7 +52,7 @@
         <field name="list_price">10</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/tandoori-roti.jpg"
         />
     </record>
@@ -63,7 +62,7 @@
         <field name="list_price">60.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/paneer_butter_masala.jpg"
         />
     </record>
@@ -73,7 +72,7 @@
         <field name="list_price">110.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/chees_masala.jpg"
         />
     </record>
@@ -83,7 +82,7 @@
         <field name="list_price">80.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/paneer_bhurji.jpg"
         />
     </record>
@@ -93,7 +92,7 @@
         <field name="list_price">70.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/muttter_paneer.png"
         />
     </record>
@@ -103,7 +102,7 @@
         <field name="list_price">85.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/malai_kofta.jpg"
         />
     </record>
@@ -113,7 +112,7 @@
         <field name="list_price">30</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/masala_kulcha.jpg"
         />
     </record>
@@ -123,7 +122,7 @@
         <field name="list_price">90.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/paneer_makhani.jpg"
         />
     </record>
@@ -135,7 +134,7 @@
         <field name="list_price">60.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/chole.png"
         />
     </record>
@@ -145,7 +144,7 @@
         <field name="list_price">60</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/bhaji_paw.jpg"
         />
     </record>
@@ -155,7 +154,7 @@
         <field name="list_price">40</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/khandvi.jpg"
         />
     </record>
@@ -165,7 +164,7 @@
         <field name="list_price">80</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/Halva.jpg"
         />
     </record>
@@ -177,7 +176,7 @@
         <field name="list_price">30.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/dosa.png"
         />
     </record>
@@ -187,7 +186,7 @@
         <field name="list_price">40.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/Idli_sambar.jpg"
         />
     </record>
@@ -197,7 +196,7 @@
         <field name="list_price">30.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/upma.jpg"
         />
     </record>
@@ -207,7 +206,7 @@
         <field name="list_price">50.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/vada_sambhar.jpg"
         />
     </record>
@@ -217,7 +216,7 @@
         <field name="list_price">70.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/uttapam.jpg"
         />
     </record>
@@ -227,7 +226,7 @@
         <field name="list_price">60.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/appam1.jpg"
         />
     </record>
@@ -237,7 +236,7 @@
         <field name="list_price">50.00</field>
         <field
             name="image_1920"
-            type="base64"
+            type="bytes"
             file="hotel_restaurant/static/img/pongal.jpg"
         />
     </record>
@@ -247,7 +246,7 @@
             name="table_nos_ids"
             eval="[(6,0,[ref('hotel_restaurant.hotel_restaurant_tables_table1'),ref('hotel_restaurant.hotel_restaurant_tables_table0')])]"
         />
-        <field name="room_id" ref="point_of_sale.wall_shelf" />
+        <field name="room_id" search="[('name', '=', 'Single-101')]" />
         <field eval="(DateTime.today()+ timedelta(days=1))" name="end_date" />
         <field name="partner_address_id" ref="base.res_partner_4" />
         <field eval="&quot;draft&quot;" name="state" />
@@ -260,7 +259,7 @@
             name="table_nos_ids"
             eval="[(6,0,[ref('hotel_restaurant.hotel_restaurant_tables_table2'),ref('hotel_restaurant.hotel_restaurant_tables_table3')])]"
         />
-        <field name="room_id" ref="point_of_sale.small_shelf" />
+        <field name="room_id" search="[('name', '=', 'Single-102')]" />
         <field eval="(DateTime.today()+ timedelta(days=2))" name="end_date" />
         <field name="partner_address_id" ref="base.res_partner_3" />
         <field eval="&quot;draft&quot;" name="state" />
@@ -310,7 +309,7 @@
         <field eval="(DateTime.today()+ timedelta(days=1))" name="o_date" />
         <field name="customer_id" ref="base.res_partner_3" />
         <field eval="&quot;OR/00001&quot;" name="order_no" />
-        <field name="room_id" ref="point_of_sale.wall_shelf" />
+        <field name="room_id" search="[('name', '=', 'Single-101')]" />
     </record>
 
     <record id="hotel_restaurant_order_list_0" model="hotel.restaurant.order.list">
@@ -328,7 +327,7 @@
         <field eval="(DateTime.today()+ timedelta(days=2))" name="o_date" />
         <field name="customer_id" ref="base.res_partner_4" />
         <field eval="&quot;OR/00002&quot;" name="order_no" />
-        <field name="room_id" ref="point_of_sale.small_shelf" />
+        <field name="room_id" search="[('name', '=', 'Single-102')]" />
     </record>
 
     <record id="hotel_restaurant_order_list_1" model="hotel.restaurant.order.list">

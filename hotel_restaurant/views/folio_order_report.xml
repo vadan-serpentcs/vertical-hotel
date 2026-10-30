@@ -1,454 +1,109 @@
-<?xml version="1.0" encoding="utf-8" ?>
-<!DOCTYPE xml>
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
-    <!--Template for hotel folio rest order -->
+    <!-- Restaurant orders per folio: set title before calling -->
+    <template id="report_folio_orders_body">
+        <t t-set="currency" t-value="folios.env.company.currency_id" />
+        <div class="page">
+            <t t-call="hotel_restaurant.report_restaurant_period_header" />
+            <table class="table table-sm table-bordered">
+                <thead>
+                    <tr>
+                        <th>Folio Number</th>
+                        <th>Customer Name</th>
+                        <th>Check-In</th>
+                        <th>Check-Out</th>
+                        <th class="text-end">Orders</th>
+                        <th class="text-end">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-foreach="folios" t-as="folio">
+                        <t t-set="orders" t-value="folio[orders_field]" />
+                        <tr>
+                            <td>
+                                <span t-field="folio.display_name" />
+                            </td>
+                            <td>
+                                <span t-field="folio.partner_id" />
+                            </td>
+                            <td class="text-nowrap">
+                                <span t-field="folio.checkin_date" />
+                            </td>
+                            <td class="text-nowrap">
+                                <span t-field="folio.checkout_date" />
+                            </td>
+                            <td class="text-end">
+                                <span t-out="len(orders)" />
+                            </td>
+                            <td class="text-end">
+                                <span
+                                    t-out="sum(orders.mapped('amount_total'))"
+                                    t-options="{'widget': 'monetary', 'display_currency': currency}"
+                                />
+                            </td>
+                        </tr>
+                        <tr t-if="with_details" t-foreach="orders" t-as="order">
+                            <td />
+                            <td>
+                                <span t-field="order.display_name" />
+                            </td>
+                            <td class="text-nowrap">
+                                <span
+                                    t-out="order_date(order)"
+                                    t-options="{'widget': 'datetime'}"
+                                />
+                            </td>
+                            <td>
+                                <span t-field="order.state" />
+                            </td>
+                            <td class="text-end">
+                                <span t-out="len(order.order_list_ids)" /> items
+                            </td>
+                            <td class="text-end">
+                                <span
+                                    t-out="order.amount_total"
+                                    t-options="{'widget': 'monetary', 'display_currency': currency}"
+                                />
+                            </td>
+                        </tr>
+                    </t>
+                    <tr t-if="not folios">
+                        <td colspan="6" class="text-center text-muted">
+                            No restaurant order in this period.
+                        </td>
+                    </tr>
+                    <tr t-else="">
+                        <td colspan="5" class="text-end">
+                            <strong>Total</strong>
+                        </td>
+                        <td class="text-end">
+                            <strong
+                                t-out="grand_total"
+                                t-options="{'widget': 'monetary', 'display_currency': currency}"
+                            />
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </template>
+
+    <!-- Orders of table bookings per folio -->
     <template id="report_rest_order">
         <t t-call="web.html_container">
             <t t-call="web.external_layout">
-                <div class="page">
-                    <style>
-                        .table-thick-border {
-                            border: 1px solid black;
-                        }
-                        .table-thick-border th,
-                        .table-thick-border td {
-                            border: 1px solid black;
-                            padding: 8px;
-                        }
-                    </style>
-                    <br />
-                    <br />
-                    <t t-if="data['check'] == True">
-                        <t t-foreach="GetRest" t-as="info">
-                            <div class="page">
-                                <center>
-                                    <div class="row">
-                                        <div class="col-12">
-                                            <h2
-                                                class="text-center"
-                                            >Restaurants Reservation Order Details</h2>
-                                        </div>
-                                    </div>
-                                </center>
-                                <center>
-                                    <div class="row mt32 mb32">
-                                        <div class="col-12 text-center">
-                                            <strong>From:</strong>
-                                            <span t-esc="data['date_start']" />
-                                            <strong>To:</strong>
-                                            <span t-esc="data['date_end']" />
-                                        </div>
-                                    </div>
-                                </center>
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; "
-                                    align="center"
-                                >
-                                    <tr>
-                                        <td width="30%">
-                                            <strong>Folio Number</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span t-esc="info.get('folio_name', '')" />
-                                        </td>
-                                        <td width="30%">
-                                            <strong>Customer Name</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span
-                                                t-esc="info.get('customer_name', '')"
-                                            />
-                                        </td>
-                                    </tr>
-                                </table>
-                                <br />
-                                <br />
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; width: 100%;"
-                                >
-                                    <thead>
-                                        <tr>
-                                            <th>Order Number.</th>
-                                            <th>Order Date</th>
-                                            <th>Items</th>
-                                            <th>State</th>
-                                            <th>Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <t
-                                            t-foreach="info.get('order_data', '')"
-                                            t-as="infodata"
-                                        >
-                                            <tr>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('order_no', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('order_date', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('order_len', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('state', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('amount_total', '')"
-                                                    />
-                                                </td>
-                                            </tr>
-                                        </t>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </t>
-                    </t>
-                    <t t-if="data['check'] == False">
-                        <t t-foreach="GetData" t-as="info">
-                            <div class="page">
-                                <center>
-                                    <div class="row">
-                                        <div class="col-12">
-                                            <h2
-                                                class="text-center"
-                                            >Restaurants Reservation Order Details</h2>
-                                        </div>
-                                    </div>
-                                </center>
-                                <center>
-                                    <div class="row mt32 mb32">
-                                        <div class="col-12 text-center">
-                                            <strong>From:</strong>
-                                            <span t-esc="data['date_start']" />
-                                            <strong>To:</strong>
-                                            <span t-esc="data['date_end']" />
-                                        </div>
-                                    </div>
-                                </center>
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; "
-                                    align="center"
-                                >
-                                    <tr>
-                                        <td width="30%">
-                                            <strong>Folio Number</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span t-esc="info.get('folio_name', '')" />
-                                        </td>
-                                        <td width="30%">
-                                            <strong>Customer Name</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span
-                                                t-esc="info.get('customer_name', '')"
-                                            />
-                                        </td>
-                                    </tr>
-                                </table>
-                                <br />
-                                <br />
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; width: 100%;"
-                                >
-                                    <thead>
-                                        <tr>
-                                            <th>CheckIN</th>
-                                            <th>CheckOut</th>
-                                            <th>Total Orders</th>
-                                            <th>Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('checkin_date', '')"
-                                                />
-                                            </td>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('checkout_date', '')"
-                                                />
-                                            </td>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('total_order', '')"
-                                                />
-                                            </td>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('total_amount', '')"
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <t t-if="info.get('total', '')">
-                                    <table
-                                        class="table table-bordered table-thick-border"
-                                        style="border-collapse: collapse; width: 100%;"
-                                    >
-                                        <tr>
-                                            <td colspan="3" style="text-align: right;">
-                                                <strong>Net Total:</strong>
-                                            </td>
-                                            <td>
-                                                <span t-esc="info.get('total', '')" />
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </t>
-                            </div>
-                        </t>
-                    </t>
-                </div>
+                <t t-set="title">Restaurant Reservation Orders</t>
+                <t t-call="hotel_restaurant.report_folio_orders_body" />
             </t>
         </t>
     </template>
 
-    <!--Template for hotel folio reserved order -->
+    <!-- Table orders per folio -->
     <template id="report_reserv_order">
         <t t-call="web.html_container">
             <t t-call="web.external_layout">
-                <div class="page">
-                    <style>
-                        .table-thick-border {
-                            border: 1px solid black;
-                        }
-                        .table-thick-border th,
-                        .table-thick-border td {
-                            border: 1px solid black;
-                            padding: 8px;
-                        }
-                    </style>
-                    <br />
-                    <br />
-                    <t t-if="data['check'] == True">
-                        <t t-foreach="GetReserv" t-as="info">
-                            <div class="page">
-                                <center>
-                                    <div class="row">
-                                        <div class="col-12">
-                                            <h2
-                                                class="text-center"
-                                            >Restaurants Reservation Order Details</h2>
-                                        </div>
-                                    </div>
-                                </center>
-                                <center>
-                                    <div class="row mt32 mb32">
-                                        <div class="col-12 text-center">
-                                            <strong>From:</strong>
-                                            <span t-esc="data['date_start']" />
-                                            <strong>To:</strong>
-                                            <span t-esc="data['date_end']" />
-                                        </div>
-                                    </div>
-                                </center>
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; "
-                                    align="center"
-                                >
-                                    <tr>
-                                        <td width="30%">
-                                            <strong>Folio Number</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span t-esc="info.get('folio_name', '')" />
-                                        </td>
-                                        <td width="30%">
-                                            <strong>Customer Name</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span
-                                                t-esc="info.get('customer_name', '')"
-                                            />
-                                        </td>
-                                    </tr>
-                                </table>
-                                <br />
-                                <br />
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; width: 100%;"
-                                >
-                                    <thead>
-                                        <tr>
-                                            <th>Order Number.</th>
-                                            <th>Order Date</th>
-                                            <th>Items</th>
-                                            <th>Tables</th>
-                                            <th>Room No.</th>
-                                            <th>State</th>
-                                            <th>Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <t
-                                            t-foreach="info.get('order_data', '')"
-                                            t-as="infodata"
-                                        >
-                                            <tr>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('order_no', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('order_date', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('order_len', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('table_nos_ids', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('room_id', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('state', '')"
-                                                    />
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        t-esc="infodata.get('amount_total', '')"
-                                                    />
-                                                </td>
-                                            </tr>
-                                        </t>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </t>
-                    </t>
-                    <t t-if="data['check'] == False">
-                        <t t-foreach="GetData" t-as="info">
-                            <div class="page">
-                                <center>
-                                    <div class="row">
-                                        <div class="col-12">
-                                            <h2
-                                                class="text-center"
-                                            >Restaurants Reservation Order Details</h2>
-                                        </div>
-                                    </div>
-                                </center>
-                                <center>
-                                    <div class="row mt32 mb32">
-                                        <div class="col-12 text-center">
-                                            <strong>From:</strong>
-                                            <span t-esc="data['date_start']" />
-                                            <strong>To:</strong>
-                                            <span t-esc="data['date_end']" />
-                                        </div>
-                                    </div>
-                                </center>
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; "
-                                    align="center"
-                                >
-                                    <tr>
-                                        <td width="30%">
-                                            <strong>Folio Number</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span t-esc="info.get('folio_name', '')" />
-                                        </td>
-                                        <td width="30%">
-                                            <strong>Customer Name</strong>
-                                        </td>
-                                        <td width="30%">
-                                            <span
-                                                t-esc="info.get('customer_name', '')"
-                                            />
-                                        </td>
-                                    </tr>
-                                </table>
-                                <br />
-                                <br />
-                                <table
-                                    class="table table-bordered table-thick-border"
-                                    style="border-collapse: collapse; width: 100%;"
-                                >
-                                    <thead>
-                                        <tr>
-                                            <th>CheckIN</th>
-                                            <th>CheckOut</th>
-                                            <th>Total Orders</th>
-                                            <th>Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('checkin_date', '')"
-                                                />
-                                            </td>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('checkout_date', '')"
-                                                />
-                                            </td>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('total_order', '')"
-                                                />
-                                            </td>
-                                            <td>
-                                                <span
-                                                    t-esc="info.get('total_amount', '')"
-                                                />
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <t t-if="info.get('total', '')">
-                                    <table
-                                        class="table table-bordered table-thick-border"
-                                        style="border-collapse: collapse; width: 100%;"
-                                    >
-                                        <tr>
-                                            <td colspan="3" style="text-align: right;">
-                                                <strong>Net Total:</strong>
-                                            </td>
-                                            <td>
-                                                <span t-esc="info.get('total', '')" />
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </t>
-                            </div>
-                        </t>
-                    </t>
-                </div>
+                <t t-set="title">Restaurant Orders</t>
+                <t t-call="hotel_restaurant.report_folio_orders_body" />
             </t>
         </t>
     </template>

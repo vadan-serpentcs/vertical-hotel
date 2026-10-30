@@ -24,5 +24,6 @@ You can manage:
 
 ![image](https://raw.githubusercontent.com/OCA/vertical-hotel/11.0/hotel_restaurant/static/description/res6.png)
 
-- Payment
-- Different Reports are also provided, mainly for Restaurant.
+- **Charge Restaurant Orders To The Guest Folio**
+- Reports: kitchen order ticket, customer bill, table reservation list,
+  restaurant orders per folio.

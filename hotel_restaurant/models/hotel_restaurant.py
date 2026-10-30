@@ -2,7 +2,72 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Command
+
+# Table bookings in these states hold their tables.
+TABLE_HOLDING_STATES = ("confirm", "order")
+
+
+def _check_state(records, allowed, action):
+    """Refuse ``action`` on the records whose state is not in ``allowed``
+    (the buttons hide it, server actions and RPC do not)."""
+    wrong = records.filtered(lambda r: r.state not in allowed)
+    if wrong:
+        raise UserError(
+            records.env._(
+                "%(action)s is not possible for %(records)s.",
+                action=action,
+                records=", ".join(wrong.mapped("display_name")),
+            )
+        )
+
+
+def _room_product_domain(model):
+    """Domain of the products that are hotel rooms."""
+    return [("id", "in", model.env["hotel.room"].sudo().search([]).product_id.ids)]
+
+
+def _create_kot(env, header, order_lines):
+    """Create a kitchen order ticket with a copy of ``order_lines``."""
+    return env["hotel.restaurant.kitchen.order.tickets"].create(
+        dict(
+            header,
+            kot_list_ids=[
+                Command.create(
+                    {
+                        "menucard_id": line.menucard_id.id,
+                        "item_qty": line.item_qty,
+                        "item_rate": line.item_rate,
+                    }
+                )
+                for line in order_lines
+            ],
+        )
+    )
+
+
+def _charge_folio(folio, order_lines):
+    """Add ``order_lines`` to the folio as service lines."""
+    sale_lines = folio.env["sale.order.line"].create(
+        [
+            {
+                "order_id": folio.order_id.id,
+                "name": line.menucard_id.name,
+                "product_id": line.menucard_id.product_id.id,
+                "product_uom_id": line.menucard_id.uom_id.id,
+                "product_uom_qty": line.item_qty,
+                "price_unit": line.item_rate,
+            }
+            for line in order_lines
+        ]
+    )
+    folio.env["hotel.service.line"].create(
+        [
+            {"folio_id": folio.id, "service_line_id": sale_line.id}
+            for sale_line in sale_lines
+        ]
+    )
 
 
 class HotelRestaurantTables(models.Model):
@@ -28,22 +93,20 @@ class HotelRestaurantReservation(models.Model):
         @param self: The object pointer
         @return: new record set for hotel restaurant reservation.
         """
-        reservation_order = self.env["hotel.reservation.order"]
-        vals_list = []
-        for record in self:
-            table_ids = record.table_nos_ids.ids
-            vals_list.append(
+        _check_state(self, ("confirm", "done"), self.env._("Creating an order"))
+        self.env["hotel.reservation.order"].create(
+            [
                 {
                     "reservation_id": record.id,
                     "order_date": record.start_date,
                     "room_id": record.room_id.id,
                     "folio_id": record.folio_id.id,
-                    "table_nos_ids": [(6, 0, table_ids)],
+                    "table_nos_ids": [Command.set(record.table_nos_ids.ids)],
                     "is_folio": record.is_folio,
                 }
-            )
-        if vals_list:
-            reservation_order.create(vals_list)
+                for record in self
+            ]
+        )
         self.write({"state": "order"})
         return True
 
@@ -73,6 +136,7 @@ class HotelRestaurantReservation(models.Model):
         --------------------------------------------
         @param self: object pointer
         """
+        _check_state(self, ("cancel",), self.env._("Resetting to draft"))
         self.write({"state": "draft"})
 
     def table_reserved(self):
@@ -82,35 +146,24 @@ class HotelRestaurantReservation(models.Model):
         @param self: The object pointer
         @return: change a state depending on the condition
         """
-
+        _check_state(self, ("draft",), self.env._("Confirming"))
         for reservation in self:
             if not reservation.table_nos_ids:
                 raise ValidationError(
                     self.env._("Please Select Tables For Reservation")
                 )
-            self.env.cr.execute(
-                "select count(*) from "
-                "hotel_restaurant_reservation as hrr "
-                "inner join reservation_table as rt on \
-                             rt.reservation_table_id = hrr.id "
-                "where (start_date,end_date)overlaps\
-                             ( timestamp %s , timestamp %s ) "
-                "and hrr.id<> %s and state != 'done'"
-                "and rt.name in (select rt.name from \
-                             hotel_restaurant_reservation as hrr "
-                "inner join reservation_table as rt on \
-                             rt.reservation_table_id = hrr.id "
-                "where hrr.id= %s) ",
-                (
-                    reservation.start_date,
-                    reservation.end_date,
-                    reservation.id,
-                    reservation.id,
-                ),
+            # a booking ending when the next one starts does not block it
+            taken = self.search(
+                [
+                    ("id", "!=", reservation.id),
+                    ("state", "in", TABLE_HOLDING_STATES),
+                    ("table_nos_ids", "in", reservation.table_nos_ids.ids),
+                    ("start_date", "<", reservation.end_date),
+                    ("end_date", ">", reservation.start_date),
+                ],
+                limit=1,
             )
-            res = self.env.cr.fetchone()
-            roomcount = res and res[0] or 0.0
-            if roomcount:
+            if taken:
                 raise ValidationError(
                     self.env._(
                         "You tried to confirm reservation "
@@ -128,6 +181,7 @@ class HotelRestaurantReservation(models.Model):
         --------------------------------------------
         @param self: object pointer
         """
+        _check_state(self, ("draft", "confirm"), self.env._("Cancelling"))
         self.write({"state": "cancel"})
 
     def table_done(self):
@@ -137,10 +191,13 @@ class HotelRestaurantReservation(models.Model):
         --------------------------------------------
         @param self: object pointer
         """
+        _check_state(self, ("confirm", "order"), self.env._("Setting to done"))
         self.write({"state": "done"})
 
     reservation_id = fields.Char("Reservation No", readonly=True, index=True)
-    room_id = fields.Many2one("product.product", "Room No")
+    room_id = fields.Many2one(
+        "product.product", "Room No", domain=lambda self: _room_product_domain(self)
+    )
     folio_id = fields.Many2one("hotel.folio", "Folio No")
     start_date = fields.Datetime(
         "Start Time", required=True, default=lambda self: fields.Datetime.now()
@@ -181,17 +238,13 @@ class HotelRestaurantReservation(models.Model):
         """
         seq_obj = self.env["ir.sequence"]
         for vals in vals_list:
-            vals.update(
-                {
-                    "reservation_id": seq_obj.next_by_code(
-                        "hotel.restaurant.reservation"
-                    )
-                    or "New"
-                }
-            )
+            if not vals.get("reservation_id"):
+                vals["reservation_id"] = (
+                    seq_obj.next_by_code("hotel.restaurant.reservation") or "New"
+                )
         return super().create(vals_list)
 
-    @api.constrains("start_date", "end_date")
+    @api.constrains("start_date", "end_date", "folio_id", "is_folio")
     def _check_start_dates(self):
         """
         This method is used to validate the start_date and end_date.
@@ -199,20 +252,21 @@ class HotelRestaurantReservation(models.Model):
         @param self: object pointer
         @return: raise a warning depending on the validation
         """
-        if self.start_date >= self.end_date:
-            raise ValidationError(
-                self.env._("Start Date Should be less than the End Date!")
-            )
-        if self.is_folio:
-            for line in self.folio_id.room_line_ids:
-                if self.start_date < line.checkin_date:
+        for reservation in self:
+            if reservation.start_date >= reservation.end_date:
+                raise ValidationError(
+                    self.env._("Start Date Should be less than the End Date!")
+                )
+            if not reservation.is_folio:
+                continue
+            for line in reservation.folio_id.room_line_ids:
+                if reservation.start_date < line.checkin_date:
                     raise ValidationError(
                         self.env._(
-                            """Start Date Should be greater """
-                            """than the Folio Check-in Date!"""
+                            "Start Date Should be greater than the Folio Check-in Date!"
                         )
                     )
-                if self.end_date > line.checkout_date:
+                if reservation.end_date > line.checkout_date:
                     raise ValidationError(
                         self.env._(
                             "End Date Should be less than the Folio Check-out Date!"
@@ -251,7 +305,7 @@ class HotelRestaurantOrder(models.Model):
     _description = "Includes Hotel Restaurant Order"
     _rec_name = "order_no"
 
-    @api.depends("order_list_ids")
+    @api.depends("order_list_ids.price_subtotal", "tax")
     def _compute_amount_all_total(self):
         """
         amount_subtotal and amount_total will display on change of order_list_ids
@@ -259,14 +313,8 @@ class HotelRestaurantOrder(models.Model):
         @param self: object pointer
         """
         for sale in self:
-            sale.amount_subtotal = sum(
-                line.price_subtotal for line in sale.order_list_ids
-            )
-            sale.amount_total = 0.0
-            if sale.amount_subtotal:
-                sale.amount_total = (
-                    sale.amount_subtotal + (sale.amount_subtotal * sale.tax) / 100
-                )
+            sale.amount_subtotal = sum(sale.order_list_ids.mapped("price_subtotal"))
+            sale.amount_total = sale.amount_subtotal * (1 + sale.tax / 100)
 
     def done_cancel(self):
         """
@@ -275,6 +323,8 @@ class HotelRestaurantOrder(models.Model):
         ----------------------------------------
         @param self: object pointer
         """
+        # a done order is on the folio: remove the charge there first
+        _check_state(self, ("draft", "order"), self.env._("Cancelling"))
         self.write({"state": "cancel"})
 
     def set_to_draft(self):
@@ -284,7 +334,18 @@ class HotelRestaurantOrder(models.Model):
         ----------------------------------------
         @param self: object pointer
         """
+        _check_state(self, ("cancel",), self.env._("Resetting to draft"))
         self.write({"state": "draft"})
+
+    def _kot_header(self):
+        self.ensure_one()
+        return {
+            "order_number": self.order_no,
+            "kot_date": fields.Datetime.now(),
+            "room_no": self.room_id.name,
+            "waiter_name": self.waiter_id.name,
+            "table_nos_ids": [Command.set(self.table_nos_ids.ids)],
+        }
 
     def generate_kot(self):
         """
@@ -292,57 +353,75 @@ class HotelRestaurantOrder(models.Model):
         @param self: The object pointer
         @return: new record set for hotel restaurant order list.
         """
-        order_tickets_obj = self.env["hotel.restaurant.kitchen.order.tickets"]
-        restaurant_order_list_obj = self.env["hotel.restaurant.order.list"]
+        _check_state(self, ("draft",), self.env._("Sending to the kitchen"))
         for order in self:
             if not order.order_list_ids:
                 raise ValidationError(self.env._("Please specify items for the order"))
             if not order.table_nos_ids:
                 raise ValidationError(self.env._("Please Assign a Table"))
-
-            table_ids = order.table_nos_ids.ids
-            kot_data = order_tickets_obj.create(
-                {
-                    "order_number": order.order_no,
-                    "kot_date": order.o_date,
-                    "room_no": order.room_id.name,
-                    "waiter_name": order.waiter_id.name,
-                    "table_nos_ids": [(6, 0, table_ids)],
-                }
+            kot = _create_kot(
+                self.env,
+                dict(order._kot_header(), kot_date=order.o_date),
+                order.order_list_ids,
             )
-
-            res = []
-            order_line_vals = []
-            for order_line in order.order_list_ids:
-                order_line_vals.append(
-                    {
-                        "kot_order_id": kot_data.id,
-                        "menucard_id": order_line.menucard_id.id,
-                        "item_qty": order_line.item_qty,
-                        "item_rate": order_line.item_rate,
-                    }
-                )
-                res.append(order_line.id)
-
-            if order_line_vals:
-                restaurant_order_list_obj.create(order_line_vals)
-
-            order.update(
+            order.write(
                 {
-                    "kitchen": kot_data.id,
-                    "rest_item_id": [(6, 0, res)],
+                    "kitchen": kot.id,
+                    "rest_item_id": [Command.set(order.order_list_ids.ids)],
                     "state": "order",
                 }
             )
+        return True
+
+    def generate_kot_update(self):
+        """
+        Send the lines added since the last ticket to the kitchen, on one
+        new kitchen order ticket.
+        ----------------------------------------------------------
+        @param self: The object pointer
+        @return: True
+        """
+        _check_state(self, ("order",), self.env._("Updating the kitchen order"))
+        for order in self:
+            new_lines = order.order_list_ids - order.rest_item_id
+            if not new_lines:
+                continue
+            kot = _create_kot(self.env, order._kot_header(), new_lines)
+            order.write(
+                {
+                    "kitchen": kot.id,
+                    "rest_item_id": [Command.link(line.id) for line in new_lines],
+                }
+            )
+        return True
+
+    def done_order_kot(self):
+        """
+        This method is used to change the state
+        to done of the hotel restaurant order
+        ----------------------------------------
+        @param self: object pointer
+        """
+        # only once: a done order is already on the folio
+        _check_state(self, ("order",), self.env._("Closing the order"))
+        for order in self.filtered("folio_id"):
+            if order.order_list_ids:
+                _charge_folio(order.folio_id, order.order_list_ids)
+                order.folio_id.write(
+                    {"hotel_restaurant_orders_ids": [Command.link(order.id)]}
+                )
+        self.write({"state": "done"})
         return True
 
     order_no = fields.Char("Order Number", readonly=True)
     o_date = fields.Datetime(
         "Order Date", required=True, default=lambda self: fields.Datetime.now()
     )
-    room_id = fields.Many2one("product.product", "Room No")
+    room_id = fields.Many2one(
+        "product.product", "Room No", domain=lambda self: _room_product_domain(self)
+    )
     folio_id = fields.Many2one("hotel.folio", "Folio No")
-    waiter_id = fields.Many2one("res.partner", "Waiter")
+    waiter_id = fields.Many2one("res.partner")
     table_nos_ids = fields.Many2many(
         "hotel.restaurant.tables",
         "restaurant_table_order_rel",
@@ -351,7 +430,7 @@ class HotelRestaurantOrder(models.Model):
         "Table Number",
     )
     order_list_ids = fields.One2many(
-        "hotel.restaurant.order.list", "restaurant_order_id", "Order List"
+        "hotel.restaurant.order.list", "restaurant_order_id"
     )
     tax = fields.Float("Tax (%) ")
     amount_subtotal = fields.Float(
@@ -374,13 +453,14 @@ class HotelRestaurantOrder(models.Model):
         "Is a Hotel Guest??", help="is customer residing in hotel or not"
     )
     customer_id = fields.Many2one("res.partner", "Customer Name", required=True)
-    kitchen = fields.Integer()
+    kitchen = fields.Integer(help="Last kitchen order ticket of the order.")
     rest_item_id = fields.Many2many(
         "hotel.restaurant.order.list",
         "restaurant_kitchen_rel",
         "restau_id",
         "kit_id",
         "Rest",
+        help="Order lines already sent to the kitchen.",
     )
 
     @api.model_create_multi
@@ -392,15 +472,16 @@ class HotelRestaurantOrder(models.Model):
         """
         seq_obj = self.env["ir.sequence"]
         for vals in vals_list:
-            vals.update(
-                {"order_no": seq_obj.next_by_code("hotel.restaurant.order") or "New"}
-            )
+            if not vals.get("order_no"):
+                vals["order_no"] = (
+                    seq_obj.next_by_code("hotel.restaurant.order") or "New"
+                )
         return super().create(vals_list)
 
     @api.onchange("folio_id")
     def _onchange_folio_id(self):
         if self.folio_id:
-            room_line = self.folio_id.room_line_ids and self.folio_id.room_line_ids[0]
+            room_line = self.folio_id.room_line_ids[:1]
             if room_line:
                 self.update(
                     {
@@ -409,96 +490,17 @@ class HotelRestaurantOrder(models.Model):
                     }
                 )
 
-    def generate_kot_update(self):
-        """
-        This method update record for hotel restaurant order list.
-        ----------------------------------------------------------
-        @param self: The object pointer
-        @return: update record set for hotel restaurant order list.
-        """
-        order_tickets_obj = self.env["hotel.restaurant.kitchen.order.tickets"]
-        rest_order_list_obj = self.env["hotel.restaurant.order.list"]
-        for order in self:
-            line_data = {
-                "order_number": order.order_no,
-                "kot_date": fields.Datetime.now(),
-                "room_no": order.room_id.name,
-                "waiter_name": order.waiter_id.name,
-                "table_nos_ids": [(6, 0, order.table_nos_ids.ids)],
-            }
-            kot_id = order_tickets_obj.browse(order.kitchen)
-            kot_id.write(line_data)
-
-            new_lines_vals = []
-            for order_line in order.order_list_ids:
-                if order_line.id not in order.rest_item_id.ids:
-                    kot_data = order_tickets_obj.create(line_data)
-                    new_lines_vals.append(
-                        {
-                            "kot_order_id": kot_data.id,
-                            "menucard_id": order_line.menucard_id.id,
-                            "item_qty": order_line.item_qty,
-                            "item_rate": order_line.item_rate,
-                        }
-                    )
-                    order.rest_item_id = [(4, order_line.id)]
-                    order.kitchen = kot_data.id
-            if new_lines_vals:
-                rest_order_list_obj.create(new_lines_vals)
-        return True
-
-    def done_order_kot(self):
-        """
-        This method is used to change the state
-        to done of the hotel restaurant order
-        ----------------------------------------
-        @param self: object pointer
-        """
-        hsl_obj = self.env["hotel.service.line"]
-        so_line_obj = self.env["sale.order.line"]
-        for order_obj in self:
-            if not order_obj.folio_id:
-                continue
-
-            sol_vals_list = []
-            for order in order_obj.order_list_ids:
-                sol_vals_list.append(
-                    {
-                        "order_id": order_obj.folio_id.order_id.id,
-                        "name": order.menucard_id.name,
-                        "product_id": order.menucard_id.product_id.id,
-                        "product_uom_id": order.menucard_id.uom_id.id,
-                        "product_uom_qty": order.item_qty,
-                        "price_unit": order.item_rate,
-                    }
-                )
-
-            if sol_vals_list:
-                sol_recs = so_line_obj.create(sol_vals_list)
-                hsl_vals_list = []
-                for sol_rec in sol_recs:
-                    hsl_vals_list.append(
-                        {
-                            "folio_id": order_obj.folio_id.id,
-                            "service_line_id": sol_rec.id,
-                        }
-                    )
-                hsl_obj.create(hsl_vals_list)
-                order_obj.folio_id.write(
-                    {"hotel_restaurant_orders_ids": [(4, order_obj.id)]}
-                )
-        self.write({"state": "done"})
-        return True
-
 
 class HotelReservationOrder(models.Model):
     _name = "hotel.reservation.order"
     _description = "Reservation Order"
     _rec_name = "order_number"
 
-    room_id = fields.Many2one("product.product", "Room No")
+    room_id = fields.Many2one(
+        "product.product", "Room No", domain=lambda self: _room_product_domain(self)
+    )
 
-    @api.depends("order_list_ids")
+    @api.depends("order_list_ids.price_subtotal", "tax")
     def _compute_amount_all_total(self):
         """
         amount_subtotal and amount_total will display on change of order_list_ids
@@ -506,12 +508,8 @@ class HotelReservationOrder(models.Model):
         @param self: object pointer
         """
         for sale in self:
-            sale.amount_subtotal = sum(
-                line.price_subtotal for line in sale.order_list_ids
-            )
-            sale.amount_total = (
-                sale.amount_subtotal + (sale.amount_subtotal * sale.tax) / 100
-            )
+            sale.amount_subtotal = sum(sale.order_list_ids.mapped("price_subtotal"))
+            sale.amount_total = sale.amount_subtotal * (1 + sale.tax / 100)
 
     @api.onchange("reservation_id")
     def _onchange_reservation_id(self):
@@ -523,113 +521,64 @@ class HotelReservationOrder(models.Model):
     @api.onchange("folio_id")
     def _onchange_folio_id(self):
         if self.folio_id:
-            self.room_id = self.folio_id.room_line_ids[0].product_id.id
+            self.room_id = self.folio_id.room_line_ids[:1].product_id.id
+
+    def _kot_header(self):
+        self.ensure_one()
+        return {
+            "order_number": self.order_number,
+            "reservation_number": self.reservation_id.reservation_id,
+            "kot_date": fields.Datetime.now(),
+            "room_no": self.room_id.name,
+            "waiter_name": self.waiter_id.name,
+            "table_nos_ids": [Command.set(self.table_nos_ids.ids)],
+        }
 
     def reservation_generate_kot(self):
         """
-        This method creates or updates a record for hotel restaurant order list.
+        This method creates the kitchen order ticket of the order.
         --------------------------------------------------------------
         @param self: The object pointer
-        @return: updated record set for hotel restaurant order list.
+        @return: True
         """
-        order_tickets_obj = self.env["hotel.restaurant.kitchen.order.tickets"]
-        rest_order_list_obj = self.env["hotel.restaurant.order.list"]
+        _check_state(self, ("draft",), self.env._("Sending to the kitchen"))
         for order in self:
             if not order.order_list_ids:
                 raise ValidationError(self.env._("Please specify items for the order"))
-
-            table_ids = order.table_nos_ids.ids
-            line_data = {
-                "order_number": order.order_number,
-                "reservation_number": order.reservation_id.reservation_id,
-                "kot_date": order.order_date,
-                "room_no": order.room_id.name,
-                "waiter_name": order.waiter_id.name,
-                "table_nos_ids": [(6, 0, table_ids)],
-            }
-
-            # Check if a KOT already exists for this order
-            existing_kot = order_tickets_obj.search(
-                [
-                    ("order_number", "=", order.order_number),
-                    ("reservation_number", "=", order.reservation_id.reservation_id),
-                ],
-                limit=1,
+            kot = _create_kot(
+                self.env,
+                dict(order._kot_header(), kot_date=order.order_date),
+                order.order_list_ids,
             )
-
-            if existing_kot:
-                # Update existing KOT
-                existing_kot.write(line_data)
-                kot_data = existing_kot
-            else:
-                # Create new KOT
-                kot_data = order_tickets_obj.create(line_data)
-
-            # Clear existing order lines
-            kot_data.kot_list_ids.unlink()
-
-            res = []
-            order_line_vals = []
-            for order_line in order.order_list_ids:
-                order_line_vals.append(
-                    {
-                        "kot_order_id": kot_data.id,
-                        "menucard_id": order_line.menucard_id.id,
-                        "item_qty": order_line.item_qty,
-                        "item_rate": order_line.item_rate,
-                    }
-                )
-                res.append(order_line.id)
-
-            if order_line_vals:
-                rest_order_list_obj.create(order_line_vals)
-
             order.write(
                 {
-                    "kitchen": kot_data.id,
-                    "rests_ids": [(6, 0, res)],
+                    "kitchen": kot.id,
+                    "rests_ids": [Command.set(order.order_list_ids.ids)],
                     "state": "order",
                 }
             )
-
         return True
 
     def reservation_update_kot(self):
         """
-        This method update record for hotel restaurant order list.
+        Send the lines added since the last ticket to the kitchen, on one
+        new kitchen order ticket.
         ----------------------------------------------------------
         @param self: The object pointer
-        @return: update record set for hotel restaurant order list.
+        @return: True
         """
-        order_tickets_obj = self.env["hotel.restaurant.kitchen.order.tickets"]
-        rest_order_list_obj = self.env["hotel.restaurant.order.list"]
+        _check_state(self, ("order",), self.env._("Updating the kitchen order"))
         for order in self:
-            table_ids = order.table_nos_ids.ids
-            line_data = {
-                "order_number": order.order_number,
-                "reservation_number": order.reservation_id.reservation_id,
-                "kot_date": fields.Datetime.now(),
-                "waiter_name": order.waiter_id.name,
-                "table_nos_ids": [(6, 0, table_ids)],
-            }
-            kot_id = order_tickets_obj.browse(self.kitchen)
-            kot_id.write(line_data)
-            for order_line in order.order_list_ids:
-                if order_line not in order.rests_ids.ids:
-                    kot_data = order_tickets_obj.create(line_data)
-                    o_line = {
-                        "kot_order_id": kot_data.id,
-                        "menucard_id": order_line.menucard_id.id,
-                        "item_qty": order_line.item_qty,
-                        "item_rate": order_line.item_rate,
-                    }
-                    order.update(
-                        {
-                            "kitchen": kot_data.id,
-                            "rests_ids": [(4, order_line.id)],
-                        }
-                    )
-                    rest_order_list_obj.create(o_line)
+            new_lines = order.order_list_ids - order.rests_ids
+            if not new_lines:
+                continue
+            kot = _create_kot(self.env, order._kot_header(), new_lines)
+            order.write(
+                {
+                    "kitchen": kot.id,
+                    "rests_ids": [Command.link(line.id) for line in new_lines],
+                }
+            )
         return True
 
     def done_kot(self):
@@ -639,39 +588,17 @@ class HotelReservationOrder(models.Model):
         ----------------------------------------
         @param self: object pointer
         """
-        hsl_obj = self.env["hotel.service.line"]
-        so_line_obj = self.env["sale.order.line"]
-        for res_order in self:
-            if not res_order.folio_id:
-                continue
-
-            sol_vals_list = []
-            for order in res_order.order_list_ids:
-                sol_vals_list.append(
-                    {
-                        "order_id": res_order.folio_id.order_id.id,
-                        "name": order.menucard_id.name,
-                        "product_id": order.menucard_id.product_id.id,
-                        "product_uom_qty": order.item_qty,
-                        "price_unit": order.item_rate,
-                    }
+        # only once: a done order is already on the folio
+        _check_state(self, ("order",), self.env._("Closing the order"))
+        for order in self:
+            if order.folio_id and order.order_list_ids:
+                _charge_folio(order.folio_id, order.order_list_ids)
+                order.folio_id.write(
+                    {"hotel_reservation_orders_ids": [Command.link(order.id)]}
                 )
-
-            if sol_vals_list:
-                sol_recs = so_line_obj.create(sol_vals_list)
-                hsl_vals_list = []
-                for sol_rec in sol_recs:
-                    hsl_vals_list.append(
-                        {
-                            "folio_id": res_order.folio_id.id,
-                            "service_line_id": sol_rec.id,
-                        }
-                    )
-                hsl_obj.create(hsl_vals_list)
-                res_order.folio_id.write(
-                    {"hotel_reservation_orders_ids": [(4, res_order.id)]}
-                )
-            res_order.reservation_id.write({"state": "done"})
+        self.reservation_id.filtered(lambda r: r.state != "cancel").write(
+            {"state": "done"}
+        )
         self.write({"state": "done"})
         return True
 
@@ -689,20 +616,21 @@ class HotelReservationOrder(models.Model):
         "Table Number",
     )
     order_list_ids = fields.One2many(
-        "hotel.restaurant.order.list", "reservation_order_id", "Order List"
+        "hotel.restaurant.order.list", "reservation_order_id"
     )
     tax = fields.Float("Tax (%) ")
     amount_subtotal = fields.Float(
         compute="_compute_amount_all_total", string="Subtotal"
     )
     amount_total = fields.Float(compute="_compute_amount_all_total", string="Total")
-    kitchen = fields.Integer("Kitchen Id")
+    kitchen = fields.Integer("Kitchen Id", help="Last kitchen order ticket.")
     rests_ids = fields.Many2many(
         "hotel.restaurant.order.list",
         "reserv_id",
         "kitchen_id",
         "res_kit_ids",
         "Rest",
+        help="Order lines already sent to the kitchen.",
     )
     state = fields.Selection(
         [("draft", "Draft"), ("order", "Order Created"), ("done", "Done")],
@@ -724,12 +652,10 @@ class HotelReservationOrder(models.Model):
         """
         seq_obj = self.env["ir.sequence"]
         for vals in vals_list:
-            vals.update(
-                {
-                    "order_number": seq_obj.next_by_code("hotel.reservation.order")
-                    or "New"
-                }
-            )
+            if not vals.get("order_number"):
+                vals["order_number"] = (
+                    seq_obj.next_by_code("hotel.reservation.order") or "New"
+                )
         return super().create(vals_list)
 
 
@@ -745,7 +671,7 @@ class HotelRestaurantOrderList(models.Model):
         @param self: object pointer
         """
         for line in self:
-            line.price_subtotal = line.item_rate * int(line.item_qty)
+            line.price_subtotal = line.item_rate * line.item_qty
 
     @api.onchange("menucard_id")
     def _onchange_item_name(self):
@@ -756,12 +682,17 @@ class HotelRestaurantOrderList(models.Model):
         """
         self.item_rate = self.menucard_id.list_price
 
-    restaurant_order_id = fields.Many2one("hotel.restaurant.order", "Restaurant Order")
+    restaurant_order_id = fields.Many2one(
+        "hotel.restaurant.order", index=True, ondelete="cascade"
+    )
     reservation_order_id = fields.Many2one(
-        "hotel.reservation.order", "Reservation Order"
+        "hotel.reservation.order", index=True, ondelete="cascade"
     )
     kot_order_id = fields.Many2one(
-        "hotel.restaurant.kitchen.order.tickets", "Kitchen Order Tickets"
+        "hotel.restaurant.kitchen.order.tickets",
+        "Kitchen Order Tickets",
+        index=True,
+        ondelete="cascade",
     )
     menucard_id = fields.Many2one("hotel.menucard", "Item Name", required=True)
     item_qty = fields.Integer("Qty", required=True, default=1)
